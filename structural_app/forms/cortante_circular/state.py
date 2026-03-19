@@ -74,3 +74,9 @@ class CortanteCircularState(BaseState):
             self
         )
         return PDFExportProvider.generate_calculation_report(payload)
+    
+    def on_load(self):
+        """Este método se ejecuta al cargar la página y soluciona el error."""
+        self.current_form_key = "cortante_circular"
+        # Opcional: limpiar resultados previos al entrar
+        # self.results = None

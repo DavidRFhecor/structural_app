@@ -104,3 +104,6 @@ class BaseState(rx.State):
             if hasattr(self, key):
                 setattr(self, key, value)
         yield rx.toast.info("Datos cargados correctamente")
+    
+    def set_search_query(self, query: str):
+        self.search_query = query

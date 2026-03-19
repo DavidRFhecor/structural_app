@@ -1,30 +1,30 @@
-import importlib
-from typing import Any
-from ..shared.domain.result_models import SolverResponse
+from typing import Dict, Any
+# Importamos los adaptadores de cada formulario
+from structural_app.forms.cortante_circular import adapter as cortante_adapter
+from structural_app.forms.beam_double_t import adapter as beam_adapter
 
 class SolverDispatcher:
-    """Orquestador que localiza y ejecuta el adaptador del formulario."""
-
     @staticmethod
-    async def dispatch(form_key: str, dto: Any) -> SolverResponse:
+    def dispatch_calculation(form_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Busca el adaptador dinámicamente y ejecuta el cálculo.
+        Enruta la solicitud de cálculo al adaptador correspondiente.
         """
         try:
-            # Importación dinámica del adaptador del formulario
-            module_path = f"structural_app.forms.{form_key}.adapter"
-            adapter_module = importlib.import_module(module_path)
+            if form_id == "cortante_circular":
+                # Aquí llamamos a la función del adaptador de cortante
+                return cortante_adapter.calculate_element(payload)
             
-            # Todos los adaptadores deben tener una función 'calculate_element'
-            # que reciba el DTO y devuelva un SolverResponse
-            result = await adapter_module.calculate_element(dto)
-            return result
+            elif form_id == "beam_double_t":
+                # Aquí llamamos a la función del adaptador de viga doble T
+                return beam_adapter.calculate_element(payload)
             
+            else:
+                return {
+                    "success": False, 
+                    "error": f"No se encontró un solver registrado para: {form_id}"
+                }
         except Exception as e:
-            # Aquí centralizamos el error para que la UI no muera
-            return SolverResponse(
-                is_ok=False,
-                checks=[],
-                summary=f"Error crítico en el solver: {str(e)}",
-                metadata={"error": "true"}
-            )
+            return {
+                "success": False, 
+                "error": f"Error crítico en el Dispatcher: {str(e)}"
+            }

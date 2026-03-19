@@ -1,33 +1,70 @@
-from loguru import logger
-from structural_app.forms.beam_double_t.dto import BeamDoubleTInputs
+import numpy as np
+# IMPORTANTE: Nueva importación
+from shapely.geometry import Polygon 
+from structuralcodes.sections import GenericSection as Section
+from structuralcodes.geometry import SurfaceGeometry 
+from structuralcodes.materials.concrete import ConcreteMC2010
+from structuralcodes.materials.reinforcement import ReinforcementMC2010
 
-# Atamos el log al contexto del formulario
-log = logger.bind(form_key="beam_double_t")
-
-def run_solver(data: dict) -> dict:
-    """
-    Única frontera con el motor externo fhecor_structuralcodes.
-    Transforma DTOs a llamadas del motor y normaliza la salida.
-    """
+def calculate_element(payload: dict) -> dict:
     try:
-        inputs = BeamDoubleTInputs(**data)
+        # 1. Datos (Igual que antes)
+        h = float(payload.get("h", 1200))
+        b_top = float(payload.get("b_top", 600))
+        t_top = float(payload.get("t_top", 150))
+        b_bot = float(payload.get("b_bot", 400))
+        t_bot = float(payload.get("t_bot", 150))
+        tw = float(payload.get("tw", 120))
+        fck = float(payload.get("fck", 35))
+        med = float(payload.get("med", 0))
+        ved = float(payload.get("ved", 0))
+
+        # 2. Materiales
+        concrete = ConcreteMC2010(fck)
         
-        # Simulación de llamada al motor externo
-        # res = fhecor_structuralcodes.checks_ec2_2004.calc_double_t(...)
+        # 3. Geometría (Cerrando el Polígono)
+        w_half = tw / 2
+        bt_half = b_top / 2
+        bb_half = b_bot / 2
+
+        # Lista de puntos original
+        points = [
+            (-bt_half, 0), (bt_half, 0),
+            (bt_half, t_top), (w_half, t_top),
+            (w_half, h - t_bot), (bb_half, h - t_bot),
+            (bb_half, h), (-bb_half, h),
+            (-bb_half, h - t_bot), (-w_half, h - t_bot),
+            (-w_half, t_top), (-bt_half, t_top),
+            (-bt_half, 0) # <--- PUNTO DE CIERRE: Volvemos al inicio
+        ]
+
+        # CREAMOS EL OBJETO SHAPELY QUE PIDE LA LIBRERÍA
+        poly = Polygon(points)
+
+        # PASAMOS EL OBJETO POLY A SURFACEGEOMETRY
+        geometry = SurfaceGeometry(poly=poly, material=concrete)
+
+        # 4. Sección
+        section = Section(geometry=geometry, material=concrete)
         
-        m_rd_calc = (inputs.fck * inputs.h * inputs.b_top * 0.12) / 1e6 
-        v_rd_calc = (inputs.tw * inputs.h * 0.18) / 1000
-        
+        # 5. Ratios de prueba
+        m_rd_calc = 850.5
+        v_rd_calc = 420.0
+        util_m = round(med / m_rd_calc, 3) if m_rd_calc > 0 else 0
+        util_v = round(ved / v_rd_calc, 3) if v_rd_calc > 0 else 0
+
         return {
             "success": True,
             "scalars": {
-                "m_rd": round(m_rd_calc, 2),
-                "v_rd": round(v_rd_calc, 2),
-                "util_m": round(inputs.med / m_rd_calc, 3) if m_rd_calc > 0 else 0,
-                "util_v": round(inputs.ved / v_rd_calc, 3) if v_rd_calc > 0 else 0,
-            },
-            "meta": {"solver": "EC2_Engine_v1", "code": "EN1992-1-1"}
+                "m_rd": m_rd_calc,
+                "v_rd": v_rd_calc,
+                "util_m": util_m,
+                "util_v": util_v,
+            }
         }
+
     except Exception as e:
-        log.error(f"Error en ejecución de solver: {str(e)}")
-        return {"success": False, "meta": {"error": str(e)}}
+        return {
+            "success": False,
+            "error": f"Error en el adaptador de Doble T: {str(e)}"
+        }

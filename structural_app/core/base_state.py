@@ -44,15 +44,21 @@ class BaseState(rx.State):
         # Convertimos el diccionario crudo a nuestro modelo Pydantic
         return FormConfig(**raw_config) if raw_config else FormConfig()
 
-    def set_value(self, field_id: str, value: str):
-        """Método dinámico para actualizar valores desde el formulario."""
-        if hasattr(self, field_id):
-            try:
-                # Intentamos convertir a número si es posible
-                val = float(value) if "." in value or value.isdigit() else value
-                setattr(self, field_id, val)
-            except:
-                setattr(self, field_id, value)
+    @rx.event
+    def set_value(self, field: str, value: str):
+        """Convierte los strings de los inputs a float de forma segura."""
+        try:
+            # Si el input está vacío o es solo un signo menos, usamos 0.0
+            if value.strip() in ["", "-"]:
+                clean_value = 0.0
+            else:
+                clean_value = float(value)
+            
+            # Ahora setattr recibe un float real, no un string
+            setattr(self, field, clean_value)
+        except ValueError:
+            # Si el usuario escribe algo no numérico, ignoramos el cambio
+            pass
             
     @rx.var
     def search_results(self) -> List[SearchResult]:

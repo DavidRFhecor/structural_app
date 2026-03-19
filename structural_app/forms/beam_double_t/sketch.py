@@ -1,26 +1,43 @@
 import reflex as rx
 
 def beam_sketch(h, b_top, t_top, b_bot, t_bot, tw) -> rx.Component:
-    """Genera un croquis SVG reactivo de la sección Doble T."""
-    # Coordenadas simplificadas para el dibujo
-    # h_draw, b_t_draw, etc., escalados para el visor
+    """Genera un croquis SVG reactivo de la sección Doble T corregido para tipos Var."""
+    
+    # Definimos el escalado como Var
     scale = 0.2
-    sh = h * scale
-    sbt = b_top * scale
-    stt = t_top * scale
-    sbb = b_bot * scale
-    stb = t_bot * scale
-    stw = tw * scale
+    mid = 150
+
+    # Realizamos las operaciones y las convertimos a String para evitar el error de tipos
+    # Usamos .to(str) al final de cada cálculo de prop
     
-    mid = 150 # Centro del lienzo
-    
-    return rx.svg(
+    return rx.el.svg(
         # Ala Superior
-        rx.rect(x=mid - sbt/2, y=20, width=sbt, height=stt, fill="#CBD5E0", stroke="#4A5568"),
+        rx.el.rect(
+            x=(mid - (b_top * scale) / 2).to(str), 
+            y="20", 
+            width=(b_top * scale).to(str), 
+            height=(t_top * scale).to(str), 
+            fill="#CBD5E0", 
+            stroke="#4A5568"
+        ),
         # Alma
-        rx.rect(x=mid - stw/2, y=20+stt, width=stw, height=sh-stt-stb, fill="#CBD5E0", stroke="#4A5568"),
+        rx.el.rect(
+            x=(mid - (tw * scale) / 2).to(str), 
+            y=(20 + (t_top * scale)).to(str), 
+            width=(tw * scale).to(str), 
+            height=((h - t_top - t_bot) * scale).to(str), 
+            fill="#CBD5E0", 
+            stroke="#4A5568"
+        ),
         # Ala Inferior
-        rx.rect(x=mid - sbb/2, y=20+sh-stb, width=sbb, height=stb, fill="#CBD5E0", stroke="#4A5568"),
+        rx.el.rect(
+            x=(mid - (b_bot * scale) / 2).to(str), 
+            y=(20 + (h - t_bot) * scale).to(str), 
+            width=(b_bot * scale).to(str), 
+            height=(t_bot * scale).to(str), 
+            fill="#CBD5E0", 
+            stroke="#4A5568"
+        ),
         view_box="0 0 300 300",
         width="100%",
         height="300px",

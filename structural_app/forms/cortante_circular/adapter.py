@@ -3,9 +3,9 @@ from ...shared.domain.result_models import SolverResponse, CheckResult
 
 # IMPORTACIONES BASADAS EN TU ESTRUCTURA DE DIRECTORIOS
 import structuralcodes
-from structuralcodes.core.sections import Section       # Ruta física confirmada
-from structuralcodes.geometry import CircularGeometry  # Carpeta geometry confirmada
-from structuralcodes.materials.concrete import Concrete # Carpeta materials confirmada
+from structuralcodes.core.section import Section
+from structuralcodes.geometry import CircularGeometry
+from structuralcodes.materials.concrete import Concrete
 
 async def calculate_element(dto: CortanteCircularDTO) -> SolverResponse:
     try:

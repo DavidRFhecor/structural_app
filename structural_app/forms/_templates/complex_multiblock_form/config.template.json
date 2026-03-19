@@ -1,0 +1,22 @@
+{
+    "form_key": "complex_key",
+    "title": "Cálculo Multibloque",
+    "template_type": "complex_multiblock_form",
+    "groups": [
+      {
+        "name": "Parámetros Globales",
+        "fields": [{"id": "id_1", "label": "Campo Base", "unit": "m", "default": 1.0}]
+      }
+    ],
+    "tables": [
+      {
+        "id": "tabla_principal",
+        "name": "Listado de Cargas/Fases",
+        "columns": [
+          {"title": "ID", "type": "text"},
+          {"title": "Magnitud", "type": "number"}
+        ]
+      }
+    ],
+    "features": { "svg": true, "viewer_3d": true }
+  }

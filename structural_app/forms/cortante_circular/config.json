@@ -1,0 +1,28 @@
+{
+    "form_key": "cortante_circular",
+    "title": "Cortante en Sección Circular",
+    "category": "Hormigón / Secciones",
+    "description": "Comprobación de resistencia a cortante para secciones circulares de hormigón armado según EC2.",
+    "template_type": "single_check_form",
+    "groups": [
+      {
+        "name": "Geometría y Materiales",
+        "fields": [
+          {"id": "diametro", "label": "Diámetro (D)", "unit": "mm", "default": 500},
+          {"id": "fck", "label": "fck (Concreto)", "unit": "MPa", "default": 30},
+          {"id": "recubrimiento", "label": "Recubrimiento", "unit": "mm", "default": 40}
+        ]
+      },
+      {
+        "name": "Armadura y Cargas",
+        "fields": [
+          {"id": "as_principal", "label": "As Principal", "unit": "mm²", "default": 1200},
+          {"id": "ved", "label": "Cortante de Cálculo (Ved)", "unit": "kN", "default": 150}
+        ]
+      }
+    ],
+    "features": {
+      "svg": true,
+      "viewer_3d": false
+    }
+  }

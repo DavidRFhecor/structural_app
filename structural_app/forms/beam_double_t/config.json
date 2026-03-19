@@ -1,0 +1,39 @@
+{
+  "form_key": "beam_double_t",
+  "title": "Viga Doble T Pretensada",
+  "category": "Concreto / Prefabricados",
+  "description": "Cálculo de sección doble T con armadura activa y comprobación de fases de transferencia y servicio.",
+  "template_type": "complex_multiblock_form",
+  "groups": [
+    {
+      "name": "Geometría de la Sección",
+      "fields": [
+        {"id": "h_total", "label": "Canto Total (h)", "unit": "mm", "default": 1200},
+        {"id": "b_ala_sup", "label": "Ancho Ala Sup (bf)", "unit": "mm", "default": 600},
+        {"id": "e_alma", "label": "Espesor Alma (bw)", "unit": "mm", "default": 200}
+      ]
+    },
+    {
+      "name": "Pretensado",
+      "fields": [
+        {"id": "n_torones", "label": "Nº de Torones", "unit": "uds", "default": 12},
+        {"id": "f_pjk", "label": "Tensión Inicial (fpjk)", "unit": "MPa", "default": 1395}
+      ]
+    }
+  ],
+  "tables": [
+    {
+      "id": "cargas_fases",
+      "name": "Fases de Carga",
+      "columns": [
+        {"title": "Fase", "type": "text"},
+        {"title": "Carga G (kN/m)", "type": "number"},
+        {"title": "Carga Q (kN/m)", "type": "number"}
+      ]
+    }
+  ],
+  "features": {
+    "svg": true,
+    "viewer_3d": true
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "form_key": "muro",
+  "title": "Muro de Contención",
+  "category": "Geotecnia / Hormigón",
+  "description": "Cálculo de estabilidad y resistencia de muros de contención de hormigón armado.",
+  "template_type": "element_design_form",
+  "groups": [
+    {
+      "name": "Geometría del Alzado",
+      "fields": [
+        {"id": "h_muro", "label": "Altura total (H)", "unit": "m", "default": 4.5},
+        {"id": "e_superior", "label": "Espesor superior", "unit": "m", "default": 0.30},
+        {"id": "e_inferior", "label": "Espesor inferior", "unit": "m", "default": 0.50}
+      ]
+    },
+    {
+      "name": "Geometría de la Zapata",
+      "fields": [
+        {"id": "b_zapata", "label": "Ancho base (B)", "unit": "m", "default": 3.0},
+        {"id": "c_puntera", "label": "Vuelo puntera", "unit": "m", "default": 1.0},
+        {"id": "h_zapata", "label": "Canto zapata", "unit": "m", "default": 0.60}
+      ]
+    }
+  ],
+  "features": {
+    "svg": true,
+    "viewer_3d": true
+  }
+}

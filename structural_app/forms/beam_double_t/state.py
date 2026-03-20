@@ -69,13 +69,26 @@ class BeamDoubleTState(BaseState):
         
         if result.get("success"):
             scalars = result.get("scalars", {})
-            # Forzamos float también al recibir para evitar que el dispatch meta strings
-            self.m_rd = safe_float(scalars.get("m_rd"))
-            self.v_rd = safe_float(scalars.get("v_rd"))
-            self.util_m = safe_float(scalars.get("util_m"))
-            self.util_v = safe_float(scalars.get("util_v"))
-        
-        self.is_calculating = False
+            
+            # 1. Guardamos las capacidades (vienen en kNm desde el adapter)
+            self.m_rd = float(scalars.get("m_rd", 0.0))
+            self.v_rd = float(scalars.get("v_rd", 0.0))
+            
+            # 2. Calculamos el ratio REAL (Med y MRd deben estar en las mismas unidades, kNm)
+            if self.m_rd > 0:
+                # Ratio simple (0.34) -> Lo multiplicamos por 100 para el porcentaje (34.30)
+                raw_ratio = (self.med / self.m_rd) * 100
+                self.util_m = round(raw_ratio, 2)
+            else:
+                self.util_m = 0.0
+
+            if self.v_rd > 0:
+                raw_ratio_v = (self.ved / self.v_rd) * 100
+                self.util_v = round(raw_ratio_v, 2)
+            else:
+                self.util_v = 0.0
+                
+                self.is_calculating = False
 
     @rx.event
     def on_load(self):

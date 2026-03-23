@@ -1,6 +1,6 @@
 import reflex as rx
 from structural_app.shared.components.layout import main_layout
-from ..core.form_registry import FORM_REGISTRY
+from structural_app.core.form_registry import FORM_REGISTRY
 
 def index() -> rx.Component:
     return main_layout(

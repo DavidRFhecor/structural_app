@@ -1,4 +1,4 @@
-from ...shared.services.geometry_3d_utils import Geometry3DUtils
+from structural_app.shared.services.geometry_3d_utils import Geometry3DUtils
 
 def generate_muro_3d_payload(state):
     """Genera la malla 3D compuesta por zapata y alzado."""

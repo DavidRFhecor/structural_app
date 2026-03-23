@@ -1,0 +1,2890 @@
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\structural_app.py
+============================================================
+
+import reflex as rx
+import importlib
+import sys
+import types
+
+# =========================================================================
+# 🚀 IMPORTACIONES DE LA APP
+# =========================================================================
+
+from structural_app.core.form_registry import FormRegistry
+from structural_app.core.config_loader import ConfigLoader
+from structural_app.core.logger_config import init_logger
+from structural_app.pages.index import index
+
+def create_full_app():
+    # Inicialización de servicios core
+    init_logger()
+    
+    # Podrías descomentar esto si quieres cargar configuraciones de JSON/YAML
+    # ConfigLoader.load_all_forms()
+
+    app = rx.App(
+        style={
+            "font_family": "Inter",
+            "background_color": "#f9fafb"
+        },
+        theme=rx.theme(
+            appearance="light",
+            has_background=True,
+            accent_color="blue",
+        )
+    )
+
+    # 1. Registrar el Dashboard Principal (Página de inicio)
+    app.add_page(index, route="/", title="Structural Hub | Home")
+
+    # 2. Registro dinámico de formularios (Módulos de cálculo)
+    for form in FormRegistry.values():
+        key = form["form_key"]
+        try:
+            # Construimos la ruta del módulo dinámicamente
+            module_path = f"structural_app.forms.{key}.page"
+            module = importlib.import_module(module_path)
+            
+            # Buscamos la función de la página (ej: beam_double_t_page)
+            page_component = getattr(module, f"{key}_page")
+            
+            # Normalizamos la ruta (ej: beam_double_t -> /beam-double-t)
+            route = f"/{key.replace('_', '-')}"
+            
+            app.add_page(
+                page_component, 
+                route=route, 
+                title=f"{form['title']} | FHECOR"
+            )
+            print(f"Formulario registrado: {key} en {route}")
+            
+        except Exception as e:
+            print(f"Error registrando el formulario {key}: {e}")
+
+    return app
+
+# Instancia global de la aplicación
+app = create_full_app()
+
+============================================================
+📁 ARCHIVO: ./structural_app\__init__.py
+============================================================
+
+# Marcamos el directorio como paquete de Python
+# Esto permite que los archivos en /forms importen desde /shared usando "from ...shared import"
+
+============================================================
+📁 ARCHIVO: ./structural_app\core\base_state.py
+============================================================
+
+import reflex as rx
+from typing import Dict, Any, List, Optional
+from pydantic import BaseModel # Usamos Pydantic para tipado fuerte
+from structural_app.core.form_registry import FORM_REGISTRY
+from structural_app.core.session_io import SessionIO
+
+# 1. Definimos las estructuras de datos con Pydantic
+# Esto permite que Reflex sepa exactamente qué hay dentro de cada lista
+class FormField(BaseModel):
+    id: str = ""
+    label: str = ""
+    unit: str = ""
+    default: Any = 0.0
+   
+
+class SearchResult(BaseModel):
+    title: str = ""
+    description: str = ""
+    form_key: str = ""
+
+class FormGroup(BaseModel):
+    name: str = ""
+    fields: List[FormField] = [] # Tipado explícito para rx.foreach
+
+class FormConfig(BaseModel):
+    form_key: str = ""
+    title: str = ""
+    description: str = ""
+    groups: List[FormGroup] = [] # Tipado explícito para rx.foreach
+    tables: List[Dict[str, Any]] = []
+
+# 2. El Estado Base de la aplicación
+class BaseState(rx.State):
+    current_form_key: str = ""
+    is_calculating: bool = False
+    last_error: str = ""
+    search_query: str = ""
+    save_filename: str = "diseño.json"
+    save_path: str = "./"
+
+    is_save_dialog_open: bool = False
+    is_load_dialog_open: bool = False
+    is_save_dialog_open: bool = False
+    is_load_dialog_open: bool = False
+
+
+    @rx.event
+    def set_save_path(self, path: str):
+        self.save_path = path
+
+    @rx.event
+    def set_is_load_dialog_open(self, is_open: bool):
+        self.is_load_dialog_open = is_open
+
+    @rx.event
+    def set_save_filename(self, name: str):
+        self.save_filename = name
+
+    @rx.event
+    def set_is_save_dialog_open(self, is_open: bool):
+        self.is_save_dialog_open = is_open
+
+    @rx.event
+    def open_save_dialog(self):
+        """Abre la ventana y propone un nombre por defecto."""
+        # Sugerimos un nombre basado en el formulario actual
+        if self.current_form_key:
+            self.save_filename = f"proyecto_{self.current_form_key}.json"
+        else:
+            self.save_filename = "proyecto_calculo.json"
+        self.is_save_dialog_open = True
+
+    @rx.event
+    def save_session(self):
+        """Guarda el JSON usando los inputs definidos en la configuración."""
+        self.is_save_dialog_open = False 
+        
+        raw_config = FORM_REGISTRY.get(self.current_form_key, {})
+        data = {}
+        
+        for group in raw_config.get("groups", []):
+            for field in group.get("fields", []):
+                field_id = field.get("id")
+                if field_id and hasattr(self, field_id):
+                    data[field_id] = getattr(self, field_id)
+                    
+        for table in raw_config.get("tables", []):
+            table_id = table.get("id")
+            if table_id and hasattr(self, table_id):
+                data[table_id] = getattr(self, table_id)
+                
+        clean_name = self.save_filename.replace(".json", "")
+    
+        return SessionIO.save_to_server_disk(data, self.save_path, clean_name)
+                    
+        # 3. Extraemos las listas de datos de las 'tables' (para cuando uses tablas dinámicas)
+        for table in raw_config.get("tables", []):
+            table_id = table.get("id")
+            if table_id and hasattr(self, table_id):
+                data[table_id] = getattr(self, table_id)
+                
+        # 4. Limpiamos el nombre y enviamos a descargar
+        clean_name = self.save_filename.replace(".json", "")
+        
+        return SessionIO.download_state(data, clean_name)
+
+    @rx.event
+    async def load_session(self, files: list[rx.UploadFile]):
+        """Carga el archivo, actualiza el estado y cierra el pop-up."""
+        if not files: 
+            return
+            
+        try:
+            file_content = await files[0].read()
+            # Esta es la llamada correcta a tu motor SessionIO
+            data = SessionIO.parse_upload(file_content.decode('utf-8'))
+            
+            for key, value in data.items():
+                if hasattr(self, key):
+                    setattr(self, key, value)
+            
+            self.is_load_dialog_open = False 
+            yield rx.toast.success("¡Proyecto cargado con éxito!")
+        except Exception as e:
+            yield rx.toast.error(f"Error al cargar el archivo: {str(e)}")
+
+    @rx.var
+    def active_form_config(self) -> FormConfig:
+        """Retorna la configuración tipada. Clave para evitar errores de compilación."""
+        raw_config = FORM_REGISTRY.get(self.current_form_key, {})
+        # Convertimos el diccionario crudo a nuestro modelo Pydantic
+        return FormConfig(**raw_config) if raw_config else FormConfig()
+
+    @rx.event
+    def set_value(self, field: str, value: str):
+        """Convierte los strings de los inputs a float de forma segura."""
+        try:
+            # Si el input está vacío o es solo un signo menos, usamos 0.0
+            if value.strip() in ["", "-"]:
+                clean_value = 0.0
+            else:
+                clean_value = float(value)
+            
+            # Ahora setattr recibe un float real, no un string
+            setattr(self, field, clean_value)
+        except ValueError:
+            # Si el usuario escribe algo no numérico, ignoramos el cambio
+            pass
+            
+    @rx.var
+    def search_results(self) -> List[SearchResult]:
+        """Busca coincidencias en el registro de formularios en tiempo real."""
+        if not self.search_query.strip():
+            return []
+            
+        query = self.search_query.lower()
+        results = []
+        
+        # Buscamos en todos los formularios registrados
+        for key, config in FORM_REGISTRY.items():
+            title = config.get("title", "").lower()
+            desc = config.get("description", "").lower()
+            
+            # Si el texto coincide con el título o la descripción, lo añadimos
+            if query in title or query in desc:
+                results.append(
+                    SearchResult(
+                        title=config.get("title", ""),
+                        description=config.get("description", ""),
+                        form_key=key
+                    )
+                )
+        return results
+    def clear_search(self):
+        """Limpia el buscador (útil al hacer clic en un resultado)."""
+        self.search_query = ""
+
+    def navigate_to_form(self, form_key: str):
+        self.current_form_key = form_key
+        return rx.redirect(f"/{form_key.replace('_', '-')}")
+
+    def reset_form(self):
+        self.last_error = ""
+        # Ejecutamos el comando nativo de JavaScript para recargar la página
+        return rx.call_script("window.location.reload();")
+
+    async def load_session(self, files: list[rx.UploadFile]):
+        if not files: return
+        data = await SessionIO.import_from_json(files[0])
+        for key, value in data.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+        yield rx.toast.info("Datos cargados correctamente")
+    
+    def set_search_query(self, query: str):
+        self.search_query = query
+
+============================================================
+📁 ARCHIVO: ./structural_app\core\config_loader.py
+============================================================
+
+import json
+import os
+from typing import Dict, Any, Optional
+
+class ConfigLoader:
+    """Servicio para cargar y validar los JSON de cada formulario."""
+
+    @staticmethod
+    def load(form_folder: str) -> Optional[Dict[str, Any]]:
+        config_path = os.path.join("structural_app", "forms", form_folder, "config.json")
+        
+        if not os.path.exists(config_path):
+            return None
+            
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+                
+            # Validación de campos mínimos obligatorios del contrato
+            required_keys = ["form_key", "title", "groups", "template_type"]
+            if not all(key in config for key in required_keys):
+                print(f"Configuración incompleta en: {form_folder}")
+                return None
+                
+            return config
+        except Exception as e:
+            print(f"Error crítico leyendo config.json en {form_folder}: {e}")
+            return None
+
+============================================================
+📁 ARCHIVO: ./structural_app\core\form_registry.py
+============================================================
+
+import os
+import json
+from typing import Dict, Any
+
+def discover_forms() -> Dict[str, Any]:
+    """Escanea y registra formularios dinámicamente."""
+    registry = {}
+    base_dir = os.path.join("structural_app", "forms")
+    
+    if not os.path.exists(base_dir):
+        return registry
+
+    for folder in os.listdir(base_dir):
+        # Ignorar plantillas y archivos privados
+        if folder.startswith(("_", ".")):
+            continue
+            
+        config_path = os.path.join(base_dir, folder, "config.json")
+        if os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+                registry[folder] = config
+    return registry
+
+FORM_REGISTRY = discover_forms()
+FormRegistry = FORM_REGISTRY
+
+============================================================
+📁 ARCHIVO: ./structural_app\core\logger_config.py
+============================================================
+
+import logging
+
+def init_logger():
+    """Configuración básica del logger para la aplicación."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+    logger = logging.getLogger("structural_app")
+    logger.info("Logger inicializado correctamente.")
+    return logger
+
+============================================================
+📁 ARCHIVO: ./structural_app\core\session_io.py
+============================================================
+
+import json
+import os
+import reflex as rx
+from typing import Dict, Any
+
+class SessionIO:
+    """Motor de serialización para guardar y cargar estados de cálculo."""
+
+    @staticmethod
+    def save_to_server_disk(state_data: Dict[str, Any], directory: str, filename: str):
+        """Escribe el JSON directamente en el disco duro del servidor."""
+        try:
+            # Aseguramos que el nombre acabe en .json
+            if not filename.endswith(".json"):
+                filename += ".json"
+                
+            # Unimos la ruta y el nombre del archivo
+            full_path = os.path.join(directory, filename)
+            
+            # Escribimos físicamente el archivo en el disco
+            with open(full_path, 'w', encoding='utf-8') as f:
+                json.dump(state_data, f, indent=4, ensure_ascii=False)
+                
+            # Devolvemos un mensaje de éxito en verde
+            return rx.toast.success(f"Guardado correctamente en: {full_path}")
+            
+        except Exception as e:
+            # Si la ruta no existe o no hay permisos, avisamos al usuario
+            return rx.toast.error(f"Error al guardar: {str(e)}")
+
+    @staticmethod
+    def parse_upload(content: str) -> Dict[str, Any]:
+        """Convierte el archivo subido de vuelta a diccionario."""
+        try:
+            return json.loads(content)
+        except Exception:
+            return {}
+
+============================================================
+📁 ARCHIVO: ./structural_app\core\solver_dispatcher.py
+============================================================
+
+from typing import Dict, Any
+
+from structural_app.forms.cortante_circular import adapter as cortante_adapter
+from structural_app.forms.beam_double_t import adapter as beam_adapter
+# 👇 NUEVA IMPORTACIÓN
+from structural_app.forms.muro import adapter as muro_adapter
+
+class SolverDispatcher:
+    @staticmethod
+    def dispatch_calculation(form_id: str, payload: Dict[str, Any]) -> Any:
+        try:
+            if form_id == "cortante_circular":
+                return cortante_adapter.calculate_element(payload)
+            elif form_id == "beam_double_t":
+                return beam_adapter.calculate_element(payload)
+            # 👇 NUEVO ENRUTAMIENTO
+            elif form_id == "muro":
+                return muro_adapter.calculate_element(payload)
+            else:
+                return {"success": False, "error": f"No se encontró solver para: {form_id}"}
+        except Exception as e:
+            return {"success": False, "error": f"Error crítico: {str(e)}"}
+
+============================================================
+📁 ARCHIVO: ./structural_app\core\ui_state.py
+============================================================
+
+import reflex as rx
+from typing import List
+from .form_registry import FORM_REGISTRY
+
+class UIState(rx.State):
+    """Estado global para la navegación y preferencias de interfaz."""
+    
+    search_query: str = ""
+    is_sidebar_open: bool = True
+    dark_mode: bool = False
+    
+    @rx.var
+    def filtered_forms(self) -> List[dict]:
+        """Filtra las calculadoras disponibles según el buscador del index."""
+        if not self.search_query:
+            return list(FORM_REGISTRY.values())
+        
+        return [
+            config for config in FORM_REGISTRY.values()
+            if self.search_query.lower() in config["title"].lower() 
+            or self.search_query.lower() in config.get("category", "").lower()
+        ]
+
+    def toggle_sidebar(self):
+        self.is_sidebar_open = not self.is_sidebar_open
+
+    def set_search(self, query: str):
+        self.search_query = query
+
+============================================================
+📁 ARCHIVO: ./structural_app\core\__init__.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\__init__.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\beam_double_t\adapter.py
+============================================================
+
+from structural_app.forms.beam_double_t.dto import BeamDoubleTInputs
+from structural_app.shared.domain.result_models import SolverResponse, CheckResult
+from fhecor_structuralcodes.checks_ec2_2004 import crack_width
+
+async def calculate_element(data: BeamDoubleTInputs) -> SolverResponse:
+    try:
+        # Comprobación de fisuración (SLS) de la rama DrrFhecor
+        # Nota: Ajusta m_ed y as_prov a los campos reales de tu DTO
+        res_fisura = crack_width(
+            m_ed=100 * 1e6, as_prov=1000, h=data.h, b=data.bf_top,
+            d=data.h - 50, fck=data.fck, fyk=500, es=200000,
+            k1=0.8, k2=0.5, c_nom=30
+        )
+
+        wk = res_fisura['wk']
+        return SolverResponse(
+            is_ok=wk <= 0.3,
+            summary="Comprobación de fisuración finalizada.",
+            checks=[
+                CheckResult(
+                    description="Abertura de fisura (wk)",
+                    status=wk <= 0.3,
+                    value=round(wk, 3),
+                    limit=0.3, unit="mm",
+                    ratio=round(wk/0.3, 2),
+                    message=f"Tensión acero: {res_fisura['sigma_s']:.1f} MPa"
+                )
+            ]
+        )
+    except Exception as e:
+        return SolverResponse(is_ok=False, summary=str(e))
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\beam_double_t\components.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\beam_double_t\config.json
+============================================================
+
+{
+  "form_key": "beam_double_t",
+  "title": "Viga Doble T Pretensada",
+  "category": "Concreto / Prefabricados",
+  "description": "Cálculo de sección doble T con armadura activa y comprobación de fases de transferencia y servicio.",
+  "template_type": "complex_multiblock_form",
+  "groups": [
+    {
+      "name": "Geometría de la Sección",
+      "fields": [
+        {"id": "h_total", "label": "Canto Total (h)", "unit": "mm", "default": 1200},
+        {"id": "b_ala_sup", "label": "Ancho Ala Sup (bf)", "unit": "mm", "default": 600},
+        {"id": "e_alma", "label": "Espesor Alma (bw)", "unit": "mm", "default": 200}
+      ]
+    },
+    {
+      "name": "Pretensado",
+      "fields": [
+        {"id": "n_torones", "label": "Nº de Torones", "unit": "uds", "default": 12},
+        {"id": "f_pjk", "label": "Tensión Inicial (fpjk)", "unit": "MPa", "default": 1395}
+      ]
+    }
+  ],
+  "tables": [
+    {
+      "id": "cargas_fases",
+      "name": "Fases de Carga",
+      "columns": [
+        {"title": "Fase", "type": "text"},
+        {"title": "Carga G (kN/m)", "type": "number"},
+        {"title": "Carga Q (kN/m)", "type": "number"}
+      ]
+    }
+  ],
+  "features": {
+    "svg": true,
+    "viewer_3d": true
+  }
+}
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\beam_double_t\constants.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\beam_double_t\dto.py
+============================================================
+
+from pydantic import BaseModel, Field
+
+class BeamDoubleTInputs(BaseModel):
+    # Geometría (mm)
+    h: float = Field(1200.0, ge=0)
+    b_top: float = Field(600.0, ge=0)
+    t_top: float = Field(150.0, ge=0)
+    b_bot: float = Field(400.0, ge=0)
+    t_bot: float = Field(150.0, ge=0)
+    tw: float = Field(120.0, ge=0)
+    
+    # Materiales y Cargas
+    fck: float = Field(35.0, ge=0)
+    med: float = Field(500.0, help="Momento de diseño en kNm")
+    ved: float = Field(200.0, help="Cortante de diseño en kN")
+
+class BeamDoubleTResults(BaseModel):
+    # Resultados mapeados del motor
+    m_rd: float
+    v_rd: float
+    is_safe_m: bool
+    is_safe_v: bool
+    util_m: float
+    util_v: float
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\beam_double_t\geometry_3d.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\beam_double_t\model_3d.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\beam_double_t\page.py
+============================================================
+
+import reflex as rx
+from structural_app.shared.components.layout import main_layout
+from structural_app.forms.beam_double_t.state import BeamDoubleTState
+from structural_app.forms.beam_double_t.sketch import beam_sketch
+from structural_app.shared.components.toolbar import form_toolbar
+
+def input_panel():
+    """Panel lateral de parámetros de entrada."""
+    return rx.vstack(
+        rx.heading("Parámetros de Diseño", size="5"),
+        rx.divider(),
+        
+        # ❌ AQUÍ ESTABA LA BARRA VIEJA. YA ESTÁ ELIMINADA.
+        
+        rx.text("Geometría Sección (mm)", weight="bold", size="3"),
+        
+        rx.grid(
+            # Canto Total
+            rx.vstack(
+                rx.text("Canto (h)", size="2"),
+                rx.input(
+                    value=BeamDoubleTState.h.to(str), 
+                    on_change=BeamDoubleTState.set_h, 
+                    type="number",
+                    placeholder="1200"
+                ),
+                align_items="start"
+            ),
+            # Ancho Ala Superior
+            rx.vstack(
+                rx.text("Ancho Sup (b_top)", size="2"),
+                rx.input(
+                    value=BeamDoubleTState.b_top.to(str), 
+                    on_change=lambda v: BeamDoubleTState.set_value("b_top", v), 
+                    type="number"
+                ),
+                align_items="start"
+            ),
+            # Espesor Ala Superior
+            rx.vstack(
+                rx.text("Espesor Sup (t_top)", size="2"),
+                rx.input(
+                    value=BeamDoubleTState.t_top.to(str), 
+                    on_change=lambda v: BeamDoubleTState.set_value("t_top", v), 
+                    type="number"
+                ),
+                align_items="start"
+            ),
+            # Espesor Alma
+            rx.vstack(
+                rx.text("Espesor Alma (tw)", size="2"),
+                rx.input(
+                    value=BeamDoubleTState.tw.to(str), 
+                    on_change=lambda v: BeamDoubleTState.set_value("tw", v), 
+                    type="number"
+                ),
+                align_items="start"
+            ),
+            # Ancho Ala Inferior
+            rx.vstack(
+                rx.text("Ancho Inf (b_bot)", size="2"),
+                rx.input(
+                    value=BeamDoubleTState.b_bot.to(str), 
+                    on_change=lambda v: BeamDoubleTState.set_value("b_bot", v), 
+                    type="number"
+                ),
+                align_items="start"
+            ),
+            # Espesor Ala Inferior
+            rx.vstack(
+                rx.text("Espesor Inf (t_bot)", size="2"),
+                rx.input(
+                    value=BeamDoubleTState.t_bot.to(str), 
+                    on_change=lambda v: BeamDoubleTState.set_value("t_bot", v), 
+                    type="number"
+                ),
+                align_items="start"
+            ),
+            columns="2", spacing="3", width="100%"
+        ),
+
+        rx.divider(),
+        rx.text("Esfuerzos Solicitantes", weight="bold", size="3"),
+        
+        rx.hstack(
+            rx.vstack(
+                rx.text("Med (kNm)", size="2"), 
+                rx.input(
+                    value=BeamDoubleTState.med.to(str), 
+                    on_change=lambda v: BeamDoubleTState.set_value("med", v), 
+                    type="number"
+                ),
+                align_items="start"
+            ),
+            rx.vstack(
+                rx.text("Ved (kN)", size="2"), 
+                rx.input(
+                    value=BeamDoubleTState.ved.to(str), 
+                    on_change=lambda v: BeamDoubleTState.set_value("ved", v), 
+                    type="number"
+                ),
+                align_items="start"
+            ),
+            width="100%", spacing="3"
+        ),
+
+        rx.button(
+            "Ejecutar Cálculo", 
+            on_click=BeamDoubleTState.run_calculation,
+            loading=BeamDoubleTState.is_calculating,
+            width="100%", color_scheme="blue",
+            margin_top="4"
+        ),
+        spacing="4", width="100%"
+    )
+
+def result_panel():
+    """Panel derecho de resultados y croquis."""
+    # Convertimos a entero para la barra de progreso
+    progress_val = (BeamDoubleTState.util_m * 100).to(int)
+    
+    return rx.vstack(
+        rx.heading("Verificación Estructural", size="5"),
+        
+        # Croquis de la sección
+        rx.box(
+            beam_sketch(
+                BeamDoubleTState.h, BeamDoubleTState.b_top, BeamDoubleTState.t_top,
+                BeamDoubleTState.b_bot, BeamDoubleTState.t_bot, BeamDoubleTState.tw
+            ),
+            width="100%", border="1px solid #E5E7EB", bg="white", border_radius="lg", padding="2"
+        ),
+        
+        # Tarjetas de Capacidad Resistente (MRd, VRd)
+        rx.grid(
+            rx.card(
+                rx.vstack(
+                    rx.text("MRd (Capacidad)", size="1", color_scheme="gray"),
+                    rx.text(f"{BeamDoubleTState.m_rd} kNm", weight="bold", size="4"),
+                    align_items="start"
+                )
+            ),
+            rx.card(
+                rx.vstack(
+                    rx.text("VRd (Capacidad)", size="1", color_scheme="gray"),
+                    rx.text(f"{BeamDoubleTState.v_rd} kN", weight="bold", size="4"),
+                    align_items="start"
+                )
+            ),
+            columns="2", spacing="4", width="100%"
+        ),
+        
+        # Barra de Ratio de Agotamiento
+        rx.vstack(
+            rx.hstack(
+                rx.text("Agotamiento Flexión", font_size="0.9em", weight="medium"),
+                rx.spacer(),
+                rx.text(
+                    BeamDoubleTState.util_m.to_string() + "%", 
+                    weight="bold",
+                    color=rx.cond(BeamDoubleTState.util_m > 100, "red", "green")
+                ),
+                width="100%",
+            ),
+            
+            # LA BARRA VISUAL:
+            rx.progress(
+                value=rx.cond(
+                    BeamDoubleTState.util_m > 100, 
+                    100, 
+                    BeamDoubleTState.util_m.to(int)
+                ),
+                width="100%",
+                color_scheme=rx.cond(BeamDoubleTState.util_m > 100, "red", "green"),
+                variant="surface",
+            ),
+            
+            # Mensaje de estado debajo de la barra
+            rx.cond(
+                BeamDoubleTState.util_m > 100,
+                rx.text("Sección insuficiente", color="red", font_size="0.8em"),
+                rx.text("Sección segura", color="green", font_size="0.8em"),
+            ),
+            
+            spacing="2",
+            width="100%",
+            align_items="start",
+        ), 
+    )
+def beam_double_t_page():
+
+    return main_layout(
+        rx.grid(
+            rx.card(input_panel(), padding="4"),
+            rx.card(result_panel(), padding="4"),
+            columns="2",
+            spacing="6",
+            grid_template_columns="1fr 1.5fr",
+            width="100%",
+            on_mount=BeamDoubleTState.on_load 
+        ),
+        state_class=BeamDoubleTState
+    )
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\beam_double_t\sketch.py
+============================================================
+
+import reflex as rx
+
+def beam_sketch(h, b_top, t_top, b_bot, t_bot, tw) -> rx.Component:
+    """Genera un croquis SVG reactivo de la sección Doble T corregido para tipos Var."""
+    
+    # Definimos el escalado como Var
+    scale = 0.2
+    mid = 150
+
+    # Realizamos las operaciones y las convertimos a String para evitar el error de tipos
+    # Usamos .to(str) al final de cada cálculo de prop
+    
+    return rx.el.svg(
+        # Ala Superior
+        rx.el.rect(
+            x=(mid - (b_top * scale) / 2).to(str), 
+            y="20", 
+            width=(b_top * scale).to(str), 
+            height=(t_top * scale).to(str), 
+            fill="#CBD5E0", 
+            stroke="#4A5568"
+        ),
+        # Alma
+        rx.el.rect(
+            x=(mid - (tw * scale) / 2).to(str), 
+            y=(20 + (t_top * scale)).to(str), 
+            width=(tw * scale).to(str), 
+            height=((h - t_top - t_bot) * scale).to(str), 
+            fill="#CBD5E0", 
+            stroke="#4A5568"
+        ),
+        # Ala Inferior
+        rx.el.rect(
+            x=(mid - (b_bot * scale) / 2).to(str), 
+            y=(20 + (h - t_bot) * scale).to(str), 
+            width=(b_bot * scale).to(str), 
+            height=(t_bot * scale).to(str), 
+            fill="#CBD5E0", 
+            stroke="#4A5568"
+        ),
+        view_box="0 0 300 300",
+        width="100%",
+        height="300px",
+    )
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\beam_double_t\state.py
+============================================================
+
+import reflex as rx
+import asyncio
+from typing import Any
+from structural_app.core.base_state import BaseState
+from structural_app.core.solver_dispatcher import SolverDispatcher
+
+def safe_float(value: Any, default: float = 0.0) -> float:
+    """Función auxiliar para convertir inputs de la UI a números reales."""
+    try:
+        if value is None or str(value).strip() == "" or str(value).strip() == "-":
+            return default
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+class BeamDoubleTState(BaseState):
+    """Estado blindado contra errores de tipo de Reflex."""
+    
+    # --- Inputs Geométricos (Valores iniciales) ---
+    h: float = 1200.0
+    b_top: float = 600.0
+    t_top: float = 150.0
+    b_bot: float = 400.0
+    t_bot: float = 150.0
+    tw: float = 120.0
+    
+    # --- Materiales y Esfuerzos ---
+    fck: float = 35.0
+    med: float = 500.0
+    ved: float = 200.0
+
+    # --- Resultados ---
+    m_rd: float = 0.0
+    v_rd: float = 0.0
+    util_m: float = 0.0
+    util_v: float = 0.0
+
+    # ==========================================================
+    # ⚙️ SETTERS CON FILTRO DE SEGURIDAD
+    # ==========================================================
+
+    @rx.event
+    def set_value(self, field: str, value: str):
+        """Setter genérico: Sanitiza el string antes de asignarlo."""
+        # Esta es la 'aduana': convertimos el texto a float real
+        clean_val = safe_float(value)
+        setattr(self, field, clean_val)
+
+    @rx.event
+    def set_h(self, value: str):
+        """Setter específico para h (Canto)."""
+        self.h = safe_float(value, default=1200.0)
+
+    # ==========================================================
+    # 🚀 LÓGICA DE CÁLCULO
+    # ==========================================================
+
+    @rx.event
+    def run_calculation(self):
+        """Llama al motor de cálculo con datos ya validados como floats."""
+        self.is_calculating = True
+        
+        payload = {
+            "h": self.h, "b_top": self.b_top, "t_top": self.t_top,
+            "b_bot": self.b_bot, "t_bot": self.t_bot, "tw": self.tw,
+            "fck": self.fck, "med": self.med, "ved": self.ved
+        }
+        
+        result = SolverDispatcher.dispatch_calculation("beam_double_t", payload)
+        
+        if result.get("success"):
+            scalars = result.get("scalars", {})
+            
+            # 1. Guardamos las capacidades (vienen en kNm desde el adapter)
+            self.m_rd = float(scalars.get("m_rd", 0.0))
+            self.v_rd = float(scalars.get("v_rd", 0.0))
+            
+            # 2. Calculamos el ratio REAL (Med y MRd deben estar en las mismas unidades, kNm)
+            if self.m_rd > 0:
+                # Ratio simple (0.34) -> Lo multiplicamos por 100 para el porcentaje (34.30)
+                raw_ratio = (self.med / self.m_rd) 
+                self.util_m = round(raw_ratio, 2)
+            else:
+                self.util_m = 0.0
+
+            if self.v_rd > 0:
+                raw_ratio_v = (self.ved / self.v_rd)
+                self.util_v = round(raw_ratio_v, 2)
+            else:
+                self.util_v = 0.0
+                
+                self.is_calculating = False
+
+    @rx.event
+    def on_load(self):
+        self.is_calculating = False
+
+    @rx.event
+    def run_calculation(self):
+        self.is_calculating = True
+        yield
+        
+        payload = {
+            "h": self.h, "b_top": self.b_top, "t_top": self.t_top,
+            "b_bot": self.b_bot, "t_bot": self.t_bot, "tw": self.tw,
+            "fck": self.fck, "med": self.med, "ved": self.ved
+        }
+        
+        # Ejecución del solver
+        result = SolverDispatcher.dispatch_calculation("beam_double_t", payload)
+        
+        if result.get("success"):
+            sc = result.get("scalars", {})
+            self.m_rd = float(sc.get("m_rd", 0.0))
+            
+            if self.m_rd > 0:
+                # LA FÓRMULA CORRECTA:
+                # (500 / 1457.82) * 100 = 34.29...
+                # El round(..., 2) es lo que elimina los .999999995
+                self.util_m = round((self.med / self.m_rd) * 100, 2)
+            else:
+                self.util_m = 0.0
+        else:
+            yield rx.toast.error(f"Error: {result.get('error')}")
+
+        self.is_calculating = False
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\beam_double_t\theory.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\beam_double_t\__init__.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\cortante_circular\adapter.py
+============================================================
+
+import math
+from structural_app.forms.cortante_circular.dto import CortanteCircularDTO
+from structural_app.shared.domain.result_models import SolverResponse, CheckResult
+# Importación desde tu repositorio FHECOR (DrrFhecor)
+from fhecor_structuralcodes.checks_ec2_2004 import shear_cheks
+
+async def calculate_element(data: CortanteCircularDTO) -> SolverResponse:
+    try:
+        # Conversión a unidades del motor (N, mm)
+        d = data.diametro - data.recubrimiento
+        Ac = (math.pi * (data.diametro**2)) / 4
+        z = 0.9 * d 
+        
+        # Llamada a la lógica de MestreCarlos
+        results, logs = shear_cheks(
+            ved=data.ved * 1000, fck=data.fck, fyk=500,
+            asw=0, s=1, z=z, theta=45.0, d=d,
+            asl=data.as_longitudinal, bw=data.diametro,
+            ned=0, Ac=Ac, sismic_comb=False
+        )
+
+        vrdc_kn = results['VRdc'] / 1000
+        ratio = data.ved / vrdc_kn if vrdc_kn > 0 else 0
+        
+        return SolverResponse(
+            is_ok=ratio <= 1.0,
+            summary="Cálculo mediante motor FHECOR finalizado.",
+            checks=[
+                CheckResult(
+                    description="Resistencia Cortante Seccional",
+                    status=ratio <= 1.0,
+                    value=data.ved,
+                    limit=round(vrdc_kn, 2),
+                    unit="kN",
+                    ratio=round(ratio, 2),
+                    message=logs[0].text if logs else ""
+                )
+            ]
+        )
+    except Exception as e:
+        return SolverResponse(is_ok=False, summary=f"Error: {str(e)}")
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\cortante_circular\components.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\cortante_circular\config.json
+============================================================
+
+{
+    "form_key": "cortante_circular",
+    "title": "Cortante en Sección Circular",
+    "category": "Hormigón / Secciones",
+    "description": "Comprobación de resistencia a cortante para secciones circulares de hormigón armado según EC2.",
+    "template_type": "single_check_form",
+    "groups": [
+      {
+        "name": "Geometría y Materiales",
+        "fields": [
+          {"id": "diametro", "label": "Diámetro (D)", "unit": "mm", "default": 500},
+          {"id": "fck", "label": "fck (Concreto)", "unit": "MPa", "default": 30},
+          {"id": "recubrimiento", "label": "Recubrimiento", "unit": "mm", "default": 40}
+        ]
+      },
+      {
+        "name": "Armadura y Cargas",
+        "fields": [
+          {"id": "as_principal", "label": "As Principal", "unit": "mm²", "default": 1200},
+          {"id": "ved", "label": "Cortante de Cálculo (Ved)", "unit": "kN", "default": 150}
+        ]
+      }
+    ],
+    "features": {
+      "svg": true,
+      "viewer_3d": false
+    }
+  }
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\cortante_circular\constants.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\cortante_circular\dto.py
+============================================================
+
+from pydantic import BaseModel, Field
+
+class CortanteCircularDTO(BaseModel):
+    """Objeto de transferencia de datos para el cálculo de cortante."""
+    diametro: float = Field(..., gt=0)
+    fck: float = Field(..., ge=12)
+    recubrimiento: float = Field(..., ge=20)
+    as_principal: float = Field(..., gt=0)
+    ved: float = Field(..., ge=0)
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\cortante_circular\page.py
+============================================================
+
+import reflex as rx
+from structural_app.shared.components.layout import main_layout
+from structural_app.shared.components.form_renderer import render_dynamic_form
+from structural_app.shared.components.result_cards import results_panel
+from structural_app.shared.components.status_badges import usage_bar
+from structural_app.forms.cortante_circular.state import CortanteCircularState
+from structural_app.forms.cortante_circular.sketch import circular_section_svg
+
+
+def input_panel():
+    """Panel de parámetros de entrada fuertemente tipado."""
+    return rx.vstack(
+        rx.heading("Geometría y Materiales", size="5"),
+        rx.divider(),
+        rx.grid(
+            rx.vstack(
+                rx.text("Diámetro (D) [mm]", size="2"),
+                rx.input(value=CortanteCircularState.diametro.to(str), on_change=lambda v: CortanteCircularState.set_value("diametro", v), type="number"),
+                align_items="start"
+            ),
+            rx.vstack(
+                rx.text("fck (Concreto) [MPa]", size="2"),
+                rx.input(value=CortanteCircularState.fck.to(str), on_change=lambda v: CortanteCircularState.set_value("fck", v), type="number"),
+                align_items="start"
+            ),
+            rx.vstack(
+                rx.text("Recubrimiento [mm]", size="2"),
+                rx.input(value=CortanteCircularState.recubrimiento.to(str), on_change=lambda v: CortanteCircularState.set_value("recubrimiento", v), type="number"),
+                align_items="start"
+            ),
+            columns="2", spacing="3", width="100%"
+        ),
+
+        rx.text("Armadura y Cargas", weight="bold", size="3", margin_top="4"),
+        rx.divider(),
+        rx.grid(
+            rx.vstack(
+                rx.text("As Principal [mm²]", size="2"),
+                rx.input(value=CortanteCircularState.as_principal.to(str), on_change=lambda v: CortanteCircularState.set_value("as_principal", v), type="number"),
+                align_items="start"
+            ),
+            rx.vstack(
+                rx.text("Ved (Cortante) [kN]", size="2"),
+                rx.input(value=CortanteCircularState.ved.to(str), on_change=lambda v: CortanteCircularState.set_value("ved", v), type="number"),
+                align_items="start"
+            ),
+            columns="2", spacing="3", width="100%"
+        ),
+
+        rx.button(
+            "Ejecutar Cálculo", 
+            on_click=CortanteCircularState.calculate,
+            loading=CortanteCircularState.is_calculating,
+            width="100%", color_scheme="blue",
+            margin_top="4"
+        ),
+        spacing="4", width="100%"
+    )
+
+def page_content() -> rx.Component:
+    """Define la estructura interna de la página de cortante circular."""
+    return rx.grid(
+        # Columna Izquierda: Formulario de Entradas (40%)
+        rx.card(
+            input_panel(),
+            padding="4",
+        ),
+        
+        # Columna Derecha: Visualización y Resultados (60%)
+        rx.vstack(
+            # Card de Visualización Geométrica (SVG)
+            rx.card(
+                rx.vstack(
+                    rx.text("Croquis de la Sección", weight="bold", size="3"),
+                    circular_section_svg(CortanteCircularState),
+                    width="100%",
+                ),
+                width="100%",
+            ),
+            
+            # Card de Resultados y Ratios
+            rx.cond(
+                CortanteCircularState.results,
+                rx.card(
+                    rx.vstack(
+                        results_panel(CortanteCircularState.results),
+                        rx.divider(),
+                        # Mostramos el ratio principal de forma destacada
+                        usage_bar(
+                            rx.cond(
+                                CortanteCircularState.results.checks.length() > 0,
+                                CortanteCircularState.results.checks[0].ratio,
+                                0.0
+                            )
+                        ),
+                        width="100%",
+                    ),
+                    width="100%",
+                ),
+                rx.center(
+                    rx.text("Introduzca datos y pulse 'Calcular' para ver los resultados", color="gray", font_style="italic"),
+                    height="200px", width="100%"
+                )
+            ),
+            spacing="4",
+            width="100%",
+        ),
+        columns="2",
+        spacing="4",
+        width="100%",
+    )
+
+def cortante_circular_page() -> rx.Component:
+    """Punto de entrada de la página con el evento de carga crucial."""
+    return main_layout(
+        rx.box(
+            page_content(),
+            # Fuerza al estado a identificarse como 'cortante_circular' al entrar
+            on_mount=CortanteCircularState.on_load 
+        )
+    )
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\cortante_circular\sketch.py
+============================================================
+
+import reflex as rx
+
+def circular_section_svg(state: any):
+    """Genera el contenedor para el SVG reactivo."""
+    return rx.center(
+        # Usamos rx.html para inyectar el texto SVG que creamos en el State
+        rx.html(state.svg_string),
+        width="100%",
+        padding="2",
+        bg="white",
+        border_radius="md",
+        border="1px solid #f3f4f6"
+    )
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\cortante_circular\state.py
+============================================================
+
+import reflex as rx
+from typing import Optional, Any
+from structural_app.core.base_state import BaseState
+from structural_app.core.solver_dispatcher import SolverDispatcher
+from structural_app.forms.cortante_circular.dto import CortanteCircularDTO
+from structural_app.shared.domain.result_models import SolverResponse
+from structural_app.shared.services.export_payloads import ExportPayloadService
+from structural_app.shared.infrastructure.pdf_export import PDFExportProvider
+
+# 1. FUNCIÓN DE SEGURIDAD PARA LOS INPUTS
+def safe_float(value: Any, default: float = 0.0) -> float:
+    """Convierte inputs de la UI a números reales evitando cuelgues."""
+    try:
+        if value is None or str(value).strip() == "" or str(value).strip() == "-":
+            return default
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+class CortanteCircularState(BaseState):
+    """Maneja los inputs, resultados y visualización del cortante circular."""
+    
+    # --- Inputs de Ingeniería ---
+    diametro: float = 500.0
+    fck: float = 30.0
+    recubrimiento: float = 40.0
+    as_principal: float = 1200.0
+    ved: float = 150.0
+
+    # --- Resultados ---
+    results: Optional[SolverResponse] = SolverResponse(is_ok=True, checks=[], summary="Esperando cálculo...")
+
+    # --- SETTER LOCAL (Soluciona el error de Variable no definida) ---
+    @rx.event
+    def set_value(self, field: str, value: str):
+        """Setter genérico: Sanitiza el string antes de asignarlo."""
+        clean_val = safe_float(value)
+        setattr(self, field, clean_val)
+
+    # --- Lógica de Visualización (SVG) ---
+    @rx.var
+    def int_radius(self) -> float:
+        """Calcula el radio de la armadura para el SVG."""
+        ext_radius = 80.0
+        if self.diametro <= 0:
+            return ext_radius * 0.9
+        recub_ratio = self.recubrimiento / (self.diametro / 2)
+        return ext_radius * (1 - recub_ratio)
+
+    @rx.var
+    def diametro_label(self) -> str:
+        """Genera el texto de la cota."""
+        return f"D={self.diametro}mm"
+
+    @rx.var
+    def svg_string(self) -> str:
+        """Genera el código SVG puro renderizado dinámicamente en el servidor."""
+        center = 100
+        ext_radius = 80
+        # Inyectamos las variables matemáticas usando f-strings de Python
+        return f"""
+        <svg viewBox="0 0 200 200" width="100%" height="300px">
+            <circle cx="{center}" cy="{center}" r="{ext_radius}" stroke="#4B5563" stroke-width="2" fill="#E5E7EB" />
+            <circle cx="{center}" cy="{center}" r="{self.int_radius}" stroke="#2563EB" stroke-width="1" fill="none" stroke-dasharray="4" />
+            <line x1="{center}" y1="{center}" x2="{center+ext_radius}" y2="{center}" stroke="#374151" />
+            <text x="{center + 10}" y="{center - 5}" font-size="10" fill="#374151">{self.diametro_label}</text>
+        </svg>
+        """
+
+    # --- Lógica de Negocio (Cálculo y Exportación) ---
+    @rx.event
+    def calculate(self):
+        """Ejecuta el cálculo estructural enviando los datos al Dispatcher."""
+        self.is_calculating = True
+        yield
+        
+        payload = {
+            "diametro": self.diametro,
+            "fck": self.fck,
+            "recubrimiento": self.recubrimiento,
+            "as_principal": self.as_principal,
+            "ved": self.ved
+        }
+        
+        # Llamada correcta al motor centralizado
+        raw_result = SolverDispatcher.dispatch_calculation("cortante_circular", payload)
+        
+        if isinstance(raw_result, SolverResponse):
+            self.results = raw_result
+        else:
+            self.results = SolverResponse(is_ok=False, summary="Error de enrutamiento en Dispatcher.")
+            
+        self.is_calculating = False
+
+    @rx.event
+    def export_pdf(self):
+        """Genera y descarga el informe técnico."""
+        payload = ExportPayloadService.create_report_data(
+            self.active_form_config, 
+            self
+        )
+        return PDFExportProvider.generate_calculation_report(payload)
+    
+    @rx.event
+    def on_load(self):
+        """Este método se ejecuta al cargar la página y soluciona el error."""
+        self.current_form_key = "cortante_circular"
+        # Opcional: limpiar resultados previos al entrar
+        self.results = None
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\cortante_circular\theory.py
+============================================================
+
+from typing import Dict
+
+# Definimos los bloques de teoría específicos para este formulario
+THEORY_BLOCKS: Dict[str, Dict[str, str]] = {
+    "vrdc": {
+        "title": "Resistencia a Cortante (Vrd,c)",
+        "reference": "EC2 Art. 6.2.2",
+        "content": """
+La resistencia de diseño a cortante de una sección sin armadura de cortante viene dada por:
+
+$$V_{Rd,c} = [C_{Rd,c} \cdot k \cdot (100 \cdot \rho_l \cdot f_{ck})^{1/3} + k_1 \cdot \sigma_{cp}] \cdot b_w \cdot d$$
+
+Donde:
+* **k**: Factor de escala $1 + \sqrt{200/d} \le 2.0$.
+* **ρl**: Cuantía de armadura traccionada.
+* **bw**: En secciones circulares, se toma el ancho medio de la sección.
+        """
+    }
+}
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\cortante_circular\__init__.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\muro\adapter.py
+============================================================
+
+from structural_app.forms.muro.dto import MuroDTO
+from structural_app.shared.domain.result_models import SolverResponse, CheckResult
+from fhecor_structuralcodes.checks_ec2_2004 import min_max_reinforcement_walls
+
+async def calculate_element(data: MuroDTO) -> SolverResponse:
+    try:
+        # Validación de cuantías según DrrFhecor
+        logs_fhecor = min_max_reinforcement_walls(
+            fck=25, fyk=500, 
+            thk_wall=data.e_inferior * 1000 # m -> mm
+        )
+
+        return SolverResponse(
+            is_ok=True,
+            summary="Análisis de muro verificado con FHECOR.",
+            checks=[
+                CheckResult(
+                    description="Cuantía Mínima Vertical",
+                    status=True,
+                    value=0, limit=0, unit="mm2/m", ratio=0,
+                    message=logs_fhecor[0].text if logs_fhecor else "Normativa EC2"
+                )
+            ]
+        )
+    except Exception as e:
+        return SolverResponse(is_ok=False, summary=str(e))
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\muro\components.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\muro\config.json
+============================================================
+
+{
+  "form_key": "muro",
+  "title": "Muro de Contención",
+  "category": "Geotecnia / Hormigón",
+  "description": "Cálculo de estabilidad y resistencia de muros de contención de hormigón armado.",
+  "template_type": "element_design_form",
+  "groups": [
+    {
+      "name": "Geometría del Alzado",
+      "fields": [
+        {"id": "h_muro", "label": "Altura total (H)", "unit": "m", "default": 4.5},
+        {"id": "e_superior", "label": "Espesor superior", "unit": "m", "default": 0.30},
+        {"id": "e_inferior", "label": "Espesor inferior", "unit": "m", "default": 0.50}
+      ]
+    },
+    {
+      "name": "Geometría de la Zapata",
+      "fields": [
+        {"id": "b_zapata", "label": "Ancho base (B)", "unit": "m", "default": 3.0},
+        {"id": "c_puntera", "label": "Vuelo puntera", "unit": "m", "default": 1.0},
+        {"id": "h_zapata", "label": "Canto zapata", "unit": "m", "default": 0.60}
+      ]
+    }
+  ],
+  "features": {
+    "svg": true,
+    "viewer_3d": true
+  }
+}
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\muro\constants.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\muro\dto.py
+============================================================
+
+from pydantic import BaseModel, Field
+
+class MuroDTO(BaseModel):
+    """Datos de transferencia para el cálculo del muro de contención."""
+    h_muro: float = Field(..., gt=0)
+    e_superior: float = Field(..., gt=0)
+    e_inferior: float = Field(..., gt=0)
+    b_zapata: float = Field(..., gt=0)
+    c_puntera: float = Field(..., ge=0)
+    h_zapata: float = Field(..., gt=0)
+    
+    # Parámetros geotécnicos por defecto (podrás añadirlos al UI más adelante)
+    densidad_tierras: float = 18.0
+    angulo_rozamiento: float = 30.0
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\muro\geometry_3d.py
+============================================================
+
+from structural_app.shared.services.geometry_3d_utils import Geometry3DUtils
+
+def generate_muro_3d_payload(state):
+    """Genera la malla 3D compuesta por zapata y alzado."""
+    # 1. Malla de la Zapata (Box)
+    zapata = Geometry3DUtils.create_box_mesh(
+        width=state.b_zapata, 
+        height=state.h_zapata, 
+        depth=5.0  # Profundidad unitaria para visualización
+    )
+    
+    # 2. Malla del Alzado (Trapézio simplificado como Box para esta versión)
+    alzado = Geometry3DUtils.create_box_mesh(
+        width=state.e_inferior,
+        height=state.h_muro,
+        depth=5.0
+    )
+    # Traslación del alzado sobre la zapata
+    for v in alzado["vertices"]:
+        v[0] += state.c_puntera
+        v[1] += state.h_zapata
+
+    return {
+        "meshes": [
+            {"data": zapata, "color": "#A0AEC0", "name": "Zapata"},
+            {"data": alzado, "color": "#CBD5E0", "name": "Alzado"}
+        ]
+    }
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\muro\model_3d.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\muro\page.py
+============================================================
+
+import reflex as rx
+from structural_app.shared.components.layout import main_layout
+from structural_app.shared.components.form_renderer import render_dynamic_form
+from structural_app.shared.components.result_cards import results_panel
+from structural_app.shared.components.viewer_3d_shell import viewer_3d_shell
+from structural_app.forms.muro.state import MuroState
+
+def muro_page() -> rx.Component:
+    return main_layout(
+        rx.grid(
+            # Columna Izquierda (40%)
+            rx.box(
+                render_dynamic_form(MuroState.active_form_config, MuroState),
+                width="100%",
+            ),
+            # Columna Derecha (60%)
+            rx.vstack(
+                # Visor 3D (Nueva capacidad integrada)
+                rx.card(
+                    rx.vstack(
+                        rx.text("Vista Geométrica 3D", weight="bold"),
+                        viewer_3d_shell(MuroState.model_3d_payload),
+                    ),
+                    width="100%",
+                ),
+                # Panel de Resultados ELU/ELS
+                results_panel(MuroState.results),
+                width="100%",
+                spacing="4",
+            ),
+            columns="2",
+            spacing="4",
+            width="100%",
+        )
+    )
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\muro\sketch.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\muro\state.py
+============================================================
+
+import reflex as rx
+from typing import Optional, Dict, Any
+from structural_app.core.base_state import BaseState
+from structural_app.shared.domain.result_models import SolverResponse
+from structural_app.core.solver_dispatcher import SolverDispatcher
+
+class MuroState(BaseState):
+    # --- Inputs (Deben coincidir EXACTAMENTE con los IDs de config.json) ---
+    h_muro: float = 4.5
+    e_superior: float = 0.30
+    e_inferior: float = 0.50
+    b_zapata: float = 3.0
+    c_puntera: float = 1.0
+    h_zapata: float = 0.60
+
+    # --- Resultados ---
+    results: Optional[SolverResponse] = SolverResponse(
+        is_ok=True, checks=[], summary="Esperando cálculo..."
+    )
+
+    # --- Lógica de Visualización 3D ---
+    @rx.var
+    def model_3d_payload(self) -> Dict[str, Any]:
+        """Genera el paquete de datos geométricos para el visor 3D."""
+        return {
+            "altura": self.h_muro,
+            "espesor": self.e_inferior,
+            "zapata_vuelo_puntera": self.c_puntera,
+            "zapata_vuelo_talon": self.b_zapata - self.c_puntera - self.e_inferior,
+            "zapata_canto": self.h_zapata
+        }
+
+    # --- Lógica de Negocio ---
+    @rx.event
+    def calculate(self):
+        """Ejecuta el cálculo estructural enviando el dict al Dispatcher."""
+        self.is_calculating = True
+        yield
+        
+        payload = {
+            "h_muro": self.h_muro, "e_superior": self.e_superior, "e_inferior": self.e_inferior,
+            "b_zapata": self.b_zapata, "c_puntera": self.c_puntera, "h_zapata": self.h_zapata
+        }
+        
+        # OJO: Usamos dispatch_calculation porque es lo que definiste en solver_dispatcher.py
+        raw_result = SolverDispatcher.dispatch_calculation("muro", payload)
+        
+        if isinstance(raw_result, SolverResponse):
+            self.results = raw_result
+        else:
+            self.results = SolverResponse(is_ok=False, summary="Error de enrutamiento en Dispatcher.")
+            
+        self.is_calculating = False
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\muro\theory.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\muro\__init__.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\_templates\__init__.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\_templates\complex_multiblock_form\adapter_template.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\_templates\complex_multiblock_form\config.template.json
+============================================================
+
+{
+    "form_key": "complex_key",
+    "title": "Cálculo Multibloque",
+    "template_type": "complex_multiblock_form",
+    "groups": [
+      {
+        "name": "Parámetros Globales",
+        "fields": [{"id": "id_1", "label": "Campo Base", "unit": "m", "default": 1.0}]
+      }
+    ],
+    "tables": [
+      {
+        "id": "tabla_principal",
+        "name": "Listado de Cargas/Fases",
+        "columns": [
+          {"title": "ID", "type": "text"},
+          {"title": "Magnitud", "type": "number"}
+        ]
+      }
+    ],
+    "features": { "svg": true, "viewer_3d": true }
+  }
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\_templates\complex_multiblock_form\dto_template.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\_templates\complex_multiblock_form\state_template.py
+============================================================
+
+import reflex as rx
+from ....core.base_state import BaseState
+from ....shared.components.data_table import custom_data_table
+
+class ComplexState(BaseState):
+    # Datos de la tabla inicializados como lista de diccionarios (estándar Reflex)
+    datos_tabla: list[dict] = [{"ID": "Fase 1", "Magnitud": 100.0}]
+
+    def update_table(self, pos, val):
+        """Actualiza la celda editada en la tabla."""
+        col, row = pos
+        col_name = self.active_form_config["tables"][0]["columns"][col]["title"]
+        self.datos_tabla[row][col_name] = val
+
+    async def calculate(self):
+        # Aquí el DTO recogería tanto campos simples como self.datos_tabla
+        pass
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\_templates\element_design_form\adapter_template.py
+============================================================
+
+from .dto import ElementDTO
+from ....shared.domain.result_models import SolverResponse, CheckResult
+# Importar aquí el motor externo:
+# from fhecor_structuralcodes.EN1992 import check_function
+
+async def calculate_element(dto: ElementDTO) -> SolverResponse:
+    """Traduce el DTO al motor externo y normaliza la salida."""
+    
+    # 1. Llamada al motor (Simulada)
+    # raw_result = check_function(b=dto.ancho, h=dto.canto, ...)
+    
+    # 2. Mapeo a CheckResult (Estandarización ELU/ELS)
+    check_geometria = CheckResult(
+        description="Esbeltez de la sección",
+        status=True,
+        value=dto.canto / dto.ancho,
+        limit=4.0,
+        unit="",
+        ratio=(dto.canto / dto.ancho) / 4.0,
+        reference="Criterio de diseño"
+    )
+
+    return SolverResponse(
+        is_ok=True,
+        checks=[check_geometria],
+        summary="Cálculo completado correctamente.",
+        metadata={"engine_version": "v1.0.0"}
+    )
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\_templates\element_design_form\config.template.json
+============================================================
+
+{
+    "form_key": "template_key",
+    "title": "Título del Formulario",
+    "category": "Categoría",
+    "description": "Descripción técnica del cálculo.",
+    "template_type": "element_design_form",
+    "solver_key": "nombre_funcion_motor",
+    "groups": [
+      {
+        "name": "Geometría",
+        "fields": [
+          {"id": "ancho", "label": "Ancho (b)", "unit": "mm", "default": 300},
+          {"id": "canto", "label": "Canto (h)", "unit": "mm", "default": 500}
+        ]
+      }
+    ],
+    "features": {
+      "svg": true,
+      "viewer_3d": false
+    }
+  }
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\_templates\element_design_form\dto_template.py
+============================================================
+
+from pydantic import BaseModel, Field
+from ....shared.domain.common_dto import MaterialPropertiesDTO
+
+class ElementDTO(BaseModel):
+    """Estructura de datos para [Nombre del Elemento]."""
+    # Inputs Geométricos
+    ancho: float = Field(..., gt=0)
+    canto: float = Field(..., gt=0)
+    
+    # Materiales (Reutilizando DTO común)
+    materiales: MaterialPropertiesDTO = MaterialPropertiesDTO()
+    
+    # Esfuerzos
+    n_ed: float = Field(0.0, description="Axil de cálculo")
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\_templates\element_design_form\page.template.py
+============================================================
+
+import reflex as rx
+from ....shared.components.layout import main_layout
+from ....shared.components.form_renderer import render_dynamic_form
+from ....shared.components.result_cards import results_panel
+from .state import ElementState
+
+def page_content() -> rx.Component:
+    return rx.grid(
+        # Panel de Entradas (40%)
+        rx.box(
+            render_dynamic_form(ElementState.active_form_config, ElementState),
+            width="100%",
+        ),
+        # Panel de Resultados (60%)
+        rx.box(
+            rx.cond(
+                ElementState.results,
+                results_panel(ElementState.results),
+                rx.center(rx.text("Introduzca datos y pulse calcular", color="gray"))
+            ),
+            width="100%",
+        ),
+        columns="2",
+        spacing="4",
+    )
+
+def template_page() -> rx.Component:
+    return main_layout(page_content())
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\_templates\element_design_form\state_template.py
+============================================================
+
+import reflex as rx
+from ....core.base_state import BaseState
+from ....core.solver_dispatcher import SolverDispatcher
+from .dto import ElementDTO
+
+class ElementState(BaseState):
+    # Variables de entrada (deben coincidir con config.json)
+    ancho: float = 300.0
+    canto: float = 500.0
+    
+    # Resultados (SolverResponse)
+    results: any = None
+
+    async def calculate(self):
+        self.is_calculating = True
+        yield # Actualiza la UI para mostrar el spinner
+        
+        dto = ElementDTO(
+            ancho=self.ancho,
+            canto=self.canto
+        )
+        
+        # Despacho automático vía core
+        self.results = await SolverDispatcher.dispatch(self.current_form_key, dto)
+        self.is_calculating = False
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\_templates\single_check_form\adapter_template.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\_templates\single_check_form\config.template.json
+============================================================
+
+{
+    "form_key": "single_check_key",
+    "title": "Verificación Puntual",
+    "template_type": "single_check_form",
+    "groups": [
+      {
+        "name": "Datos de Entrada",
+        "fields": [
+          {"id": "valor_ed", "label": "Esfuerzo de cálculo", "unit": "kN", "default": 0}
+        ]
+      }
+    ],
+    "features": { "svg": false, "viewer_3d": false }
+  }
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\_templates\single_check_form\dto_template.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\forms\_templates\single_check_form\state_template.py
+============================================================
+
+import reflex as rx
+from ....core.base_state import BaseState
+from .adapter import calculate_element
+
+class SingleCheckState(BaseState):
+    valor_ed: float = 0.0
+    results: any = None
+
+    async def calculate(self):
+        self.is_calculating = True
+        yield
+        # En formularios simples, podemos llamar al adaptador directamente o vía dispatcher
+        from .dto import SimpleDTO
+        dto = SimpleDTO(valor_ed=self.valor_ed)
+        self.results = await calculate_element(dto)
+        self.is_calculating = False
+
+============================================================
+📁 ARCHIVO: ./structural_app\pages\index.py
+============================================================
+
+import reflex as rx
+from structural_app.shared.components.layout import main_layout
+from structural_app.core.form_registry import FORM_REGISTRY
+
+def index() -> rx.Component:
+    return main_layout(
+        rx.vstack(
+            rx.heading("Dashboard de Cálculo Estructural", size="8", margin_bottom="1rem"),
+            rx.text("Acceda a los módulos normativos basados en el motor FHECOR Structural Codes.", color_scheme="gray"),
+                        
+            rx.grid(
+                *[
+                    rx.card(
+                        rx.vstack(
+                            rx.hstack(
+                                rx.badge(config.get("category", "General"), color_scheme="blue"),
+                                rx.spacer(),
+                                rx.icon("chevron-right", color="gray"),
+                                width="100%",
+                            ),
+                            rx.heading(config["title"], size="4"),
+                            rx.text(config["description"], size="2", line_limit=2),
+                            rx.button(
+                                "Abrir Calculadora", 
+                                variant="soft", 
+                                width="100%",
+                                on_click=rx.redirect(f"/{key.replace('_', '-')}")
+                            ),
+                            spacing="3",
+                        ),
+                        height="220px",
+                    )
+                    for key, config in FORM_REGISTRY.items()
+                ],
+                columns="3",
+                spacing="4",
+                width="100%",
+            ),
+            width="100%",
+            spacing="4",
+        )
+    )
+
+============================================================
+📁 ARCHIVO: ./structural_app\pages\__init__.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\__init__.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\components\data_table.py
+============================================================
+
+import reflex as rx
+
+def custom_data_table(matrix_data: rx.Var, columns: list[dict], on_edit_fn: any):
+    return rx.data_editor(
+        columns=columns,
+        data=matrix_data,
+        on_cell_edited=on_edit_fn, # Pasamos la referencia directa a la función corregida
+        width="100%",
+    )
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\components\form_renderer.py
+============================================================
+
+import reflex as rx
+
+def render_field(field: rx.Var, state_ptr: any):
+    """Renderiza un campo individual."""
+    return rx.vstack(
+        rx.text(field["label"], size="2"),
+        rx.input(
+            placeholder=field["unit"],
+            on_blur=lambda v: state_ptr.set_value(field["id"], v),
+            width="100%",
+        ),
+        align_items="start",
+    )
+
+def render_group(group: rx.Var, state_ptr: any):
+    """Renderiza un grupo y sus campos."""
+    return rx.vstack(
+        rx.text(group["name"], weight="bold", margin_top="4"),
+        rx.grid(
+            # Iteramos sobre los campos del grupo
+            rx.foreach(
+                group["fields"],
+                lambda field: render_field(field, state_ptr)
+            ),
+            columns="2",
+            spacing="4",
+            width="100%",
+        ),
+        width="100%",
+        align_items="start",
+    )
+
+def render_dynamic_form(config: rx.Var, state_ptr: any):
+    """Punto de entrada principal del formulario."""
+    return rx.vstack(
+        rx.heading(config.title, size="6"),
+        rx.text(config.description, color_scheme="gray"),
+        rx.divider(),
+        
+        # Iteramos sobre los grupos
+        rx.foreach(
+            config.groups,
+            lambda group: render_group(group, state_ptr)
+        ),
+        
+        rx.button(
+            "Calcular", 
+            on_click=state_ptr.calculate,
+            is_loading=state_ptr.is_calculating,
+            width="100%",
+            color_scheme="blue",
+            margin_top="6",
+        ),
+        width="100%",
+        spacing="4",
+    )
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\components\layout.py
+============================================================
+
+import reflex as rx
+from structural_app.core.form_registry import FORM_REGISTRY, discover_forms
+from structural_app.shared.components.search_bar import top_search_bar
+
+# 1. NAVBAR RECIBE EL ESTADO
+def navbar(state_class: rx.State = None):
+    
+    if state_class:
+        action_buttons = rx.hstack(
+            # 1. DIÁLOGO DE GUARDADO
+            rx.dialog.root(
+                rx.dialog.content(
+                    rx.dialog.title("Guardar Proyecto"),
+                    rx.dialog.description("Introduce el nombre con el que deseas guardar este cálculo:"),
+                    rx.box(
+                        rx.input(
+                            value=state_class.save_filename,
+                            on_change=state_class.set_save_filename,
+                            placeholder="nombre_del_archivo.json",
+                        ),
+                        margin_y="4",
+                    ),
+                    rx.flex(
+                        rx.button("Cancelar", color_scheme="gray", variant="soft", on_click=state_class.set_is_save_dialog_open(False), cursor="pointer"),
+                        rx.button("Confirmar Guardado", on_click=state_class.save_session, cursor="pointer"),
+                        spacing="3",
+                        justify="end",
+                    ),
+                ),
+                open=state_class.is_save_dialog_open,
+            ),
+            
+            # 2. NUEVO POP-UP DE CARGA
+            # 1. DIÁLOGO DE GUARDADO CON RUTA EN EL SERVIDOR
+            rx.dialog.root(
+                rx.dialog.content(
+                    rx.dialog.title("Guardar Proyecto"),
+                    rx.dialog.description("Especifica dónde quieres guardar el archivo físico:"),
+                    
+                    rx.vstack(
+                        rx.vstack(
+                            rx.text("Ruta de la carpeta (Absoluta o relativa):", weight="bold", size="2"),
+                            rx.input(
+                                value=state_class.save_path,
+                                on_change=state_class.set_save_path,
+                                placeholder="Ej: D:\\Proyectos\\FHECOR\\",
+                                width="100%",
+                            ),
+                            spacing="1", # Muy pegadito al input
+                            width="100%",
+                        ),
+                        
+                        # --- GRUPO 2: LABEL + INPUT PARA EL NOMBRE ---
+                        rx.vstack(
+                            rx.text("Nombre del archivo:", weight="bold", size="2"),
+                            rx.input(
+                                value=state_class.save_filename,
+                                on_change=state_class.set_save_filename,
+                                placeholder="diseño_muro.json",
+                                width="100%",
+                            ),
+                            spacing="1", # Muy pegadito al input
+                            width="100%",
+                        ),
+                        
+                        spacing="4", # Separación mayor entre los dos bloques
+                        margin_y="4",
+                        width="100%",
+                    ),
+                    
+                    rx.flex(
+                        rx.button("Cancelar", color_scheme="gray", variant="soft", on_click=state_class.set_is_save_dialog_open(False), cursor="pointer"),
+                        rx.button("Guardar en Disco", on_click=state_class.save_session, cursor="pointer"),
+                        spacing="3",
+                        justify="end",
+                    ),
+                ),
+                open=state_class.is_save_dialog_open,
+            ),
+            
+            # 3. LOS BOTONES VISIBLES EN LA BARRA SUPERIOR
+            rx.button(rx.icon("save"), variant="ghost", on_click=state_class.open_save_dialog, cursor="pointer", title="Guardar proyecto"),
+            # El botón de subir ahora solo abre el pop-up
+            rx.button(rx.icon("upload"), variant="ghost", on_click=state_class.set_is_load_dialog_open(True), cursor="pointer", title="Cargar proyecto"),
+            rx.button(rx.icon("refresh-cw"), variant="ghost", color_scheme="red", on_click=state_class.reset_form, cursor="pointer", title="Limpiar datos"),
+            spacing="3",
+        )
+    else:
+        # Estado inactivo para el inicio
+        action_buttons = rx.hstack(
+            rx.button(rx.icon("save"), variant="ghost", disabled=True),
+            rx.button(rx.icon("upload"), variant="ghost", disabled=True),
+            spacing="3",
+        )
+
+    return rx.hstack(
+        rx.hstack(
+            rx.image(src="/logo.svg", width="30px"),
+            rx.heading("FHECOR | Structural Design Hub", size="4"),
+            spacing="3",
+            align="center",
+        ),
+        rx.spacer(),
+        top_search_bar(),
+        rx.spacer(),
+        action_buttons, 
+        align="center",
+        padding="1rem",
+        border_bottom="1px solid #e5e7eb",
+        width="100%",
+    )
+
+def sidebar():
+    return rx.vstack(
+        rx.text("CALCULADORAS", weight="bold", size="1", color_scheme="gray", margin_bottom="1rem"),
+        rx.vstack(
+            *[
+                rx.link(
+                    rx.hstack(
+                        rx.icon("calculator", size=16),
+                        rx.text(config["title"], size="2"),
+                    ),
+                    href=f"/{key.replace('_', '-')}",
+                    width="100%",
+                    padding="0.5rem",
+                    border_radius="md",
+                    _hover={"bg": "#f3f4f6", "text_decoration": "none"},
+                )
+                for key, config in FORM_REGISTRY.items()
+            ],
+            width="100%",
+            spacing="1",
+        ),
+        width="250px",
+        height="100vh",
+        padding="1.5rem",
+        border_right="1px solid #e5e7eb",
+    )
+
+# 2. MAIN LAYOUT AHORA RECIBE EL ESTADO Y SE LO PASA A LA NAVBAR
+def main_layout(content: rx.Component, state_class: rx.State = None):
+    return rx.box(
+        navbar(state_class), # Le pasamos el estado a la barra superior
+        rx.hstack(
+            sidebar(),
+            rx.box(
+                content,
+                flex="1",
+                bg="#f9fafb",
+                height="calc(100vh - 64px)",
+                overflow_y="auto",
+                padding="2rem",
+            ),
+            spacing="0",
+            align_items="flex-start",
+        ),
+        width="100%",
+    )
+
+FormRegistry = discover_forms()
+FORM_REGISTRY = FormRegistry
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\components\model_3d.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\components\result_cards.py
+============================================================
+
+import reflex as rx
+
+def check_card(check: rx.Var):
+    """Renderiza una tarjeta individual de comprobación normativa."""
+    return rx.card(
+        rx.hstack(
+            rx.vstack(
+                rx.text(check.description, weight="bold"),
+                rx.text(f"Valor: {check.value} / Límite: {check.limit}", size="2"),
+                align_items="start",
+            ),
+            rx.spacer(),
+            # Badge dinámico según el ratio
+            rx.badge(
+                rx.cond(check.status, "CUMPLE", "NO CUMPLE"),
+                color_scheme=rx.cond(check.status, "green", "red"),
+                variant="surface",
+            ),
+            width="100%",
+            align_items="center",
+        ),
+        margin_bottom="2",
+    )
+
+def results_panel(response: rx.Var):
+    """Panel derecho que muestra el resumen y la lista de comprobaciones."""
+    return rx.vstack(
+        rx.heading("Resultados del Cálculo", size="5"),
+        rx.text(response.summary, color_scheme="gray"),
+        rx.divider(),
+        
+        # CAMBIO CRÍTICO: Usamos rx.foreach en lugar de list comprehension
+        rx.foreach(
+            response.checks,
+            lambda c: check_card(c)
+        ),
+        
+        width="100%",
+        spacing="4",
+        padding="4",
+    )
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\components\search_bar.py
+============================================================
+
+import reflex as rx
+from structural_app.core.base_state import BaseState, SearchResult
+
+def render_search_result(result: SearchResult):
+    """Diseño de cada tarjeta de resultado en la lista."""
+    return rx.box(
+        rx.vstack(
+            rx.text(result.title, weight="bold", size="2"),
+            rx.text(result.description, size="1", color_scheme="gray"),
+            align_items="start",
+            spacing="1",
+        ),
+        padding="2",
+        width="100%",
+        border_radius="md",
+        # Efecto hover para que parezca un botón interactivo
+        _hover={"bg": rx.color("accent", 3), "cursor": "pointer"},
+        # Al hacer clic, navega y limpia el buscador
+        on_click=[
+            BaseState.navigate_to_form(result.form_key),
+            BaseState.clear_search
+        ]
+    )
+
+def top_search_bar():
+    """Componente principal del buscador con menú desplegable."""
+    return rx.box(
+        # Barra de entrada de texto
+        rx.input(
+            placeholder="Buscar cálculo (ej. Viga, Cortante...)",
+            value=BaseState.search_query,
+            # Reflex crea automáticamente set_search_query para actualizar el State
+            on_change=BaseState.set_search_query,
+            radius="full",
+            width="300px",
+            background_color="white",
+        ),
+        
+        # Caja de resultados flotante (Solo se muestra si hay texto)
+        rx.cond(
+            BaseState.search_query != "",
+            rx.box(
+                rx.cond(
+                    BaseState.search_results.length() > 0,
+                    # Si hay resultados, mostramos la lista
+                    rx.vstack(
+                        rx.foreach(
+                            BaseState.search_results,
+                            lambda res: render_search_result(res)
+                        ),
+                        width="100%",
+                        spacing="1",
+                    ),
+                    # Si no hay resultados
+                    rx.text("No se encontraron módulos.", padding="3", size="2", color_scheme="gray")
+                ),
+                # Estilos para que flote debajo del input
+                position="absolute",
+                top="100%",
+                left="0",
+                margin_top="2",
+                width="100%",
+                background_color="white",
+                border_radius="md",
+                box_shadow="0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)",
+                z_index="50",
+                padding="2",
+            )
+        ),
+        position="relative", # Fundamental para que el menú flotante este bien posicionado
+    )
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\components\status_badges.py
+============================================================
+
+import reflex as rx
+
+def status_badge(is_ok: bool):
+    """Badge de cumplimiento ELU/ELS."""
+    return rx.badge(
+        rx.cond(is_ok, "CUMPLE", "NO CUMPLE"),
+        color_scheme=rx.cond(is_ok, "green", "red"),
+        variant="solid",
+        size="2"
+    )
+
+def usage_bar(ratio: rx.Var): # Asegúrate de que reciba el Var
+    # Convertimos el resultado de la operación a entero
+    progress_value = (ratio * 100).to(int) 
+    
+    color = rx.cond(ratio > 1.0, "red", rx.cond(ratio > 0.9, "orange", "green"))
+    
+    return rx.vstack(
+        # ... tu código anterior de los textos ...
+        rx.progress(
+            value=progress_value, # Ahora es un int garantizado
+            color_scheme=color,
+            width="100%",
+        ),
+        spacing="1",
+        width="100%",
+    )
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\components\theory.py
+============================================================
+
+import reflex as rx
+
+def theory_popover(title: str, content: str, reference: str = ""):
+    """Crea un icono de información que despliega la base normativa."""
+    return rx.popover.root(
+        rx.popover.trigger(
+            rx.icon("info", size=16, color="blue", cursor="pointer"),
+        ),
+        rx.popover.content(
+            rx.vstack(
+                rx.hstack(
+                    rx.text(title, weight="bold", size="3"),
+                    rx.spacer(),
+                    rx.badge(reference, color_scheme="blue", variant="surface"),
+                    width="100%",
+                ),
+                rx.divider(),
+                rx.markdown(content),
+                spacing="3",
+            ),
+            width="400px",
+        ),
+    )
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\components\toolbar.py
+============================================================
+
+import reflex as rx
+
+def form_toolbar(state_class: rx.State, upload_id: str = "upload_json"):
+    """Barra de acciones universal con diálogo de guardado."""
+    
+    # 1. EL DIÁLOGO FLOTANTE DE GUARDADO
+    save_dialog = rx.dialog.root(
+        rx.dialog.content(
+            rx.dialog.title("Guardar Proyecto"),
+            rx.dialog.description("Introduce el nombre con el que deseas guardar este cálculo:"),
+            
+            rx.box(
+                rx.input(
+                    value=state_class.save_filename,
+                    on_change=state_class.set_save_filename, 
+                    placeholder="nombre_del_archivo.json",
+                ),
+                margin_y="4",
+            ),
+            
+            rx.flex(
+                rx.button(
+                    "Cancelar", 
+                    color_scheme="gray", 
+                    variant="soft", 
+                    on_click=state_class.set_is_save_dialog_open(False),
+                    cursor="pointer",
+                ),
+                rx.button(
+                    "Confirmar Guardado", 
+                    on_click=state_class.save_session, 
+                    cursor="pointer",
+                ),
+                spacing="3",
+                justify="end",
+            ),
+        ),
+        open=state_class.is_save_dialog_open,
+    )
+
+    # 2. LA BARRA DE HERRAMIENTAS PRINCIPAL
+    return rx.hstack(
+        save_dialog,
+        
+        # SUSTITUIMOS BUTTON_GROUP POR HSTACK
+        rx.hstack(
+            rx.button(
+                rx.icon("save"), "Guardar", 
+                on_click=state_class.open_save_dialog,
+                variant="soft", size="2", cursor="pointer"
+            ),
+            rx.upload(
+                rx.button(rx.icon("upload"), "Cargar", variant="soft", size="2", cursor="pointer"),
+                id=upload_id,
+                on_drop=state_class.load_session(rx.upload_files(upload_id=upload_id)),
+                multiple=False,
+                accept={"application/json": [".json"]},
+                max_files=1,
+            ),
+            spacing="1", # Espacio pequeño para que parezcan agrupados
+        ),
+        
+        rx.spacer(),
+        rx.button(
+            rx.icon("refresh-cw"), 
+            on_click=state_class.reset_form,
+            variant="ghost", size="2", color_scheme="red", cursor="pointer"
+        ),
+        width="100%",
+        padding_y="2",
+        border_bottom="1px solid #f3f4f6",
+    )
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\components\viewer_3d_shell.py
+============================================================
+
+import reflex as rx
+
+def viewer_3d_shell(payload: rx.Var):
+    """
+    Contenedor para el visor 3D. 
+    Recibe un payload (vértices, caras, colores) desde el State.
+    """
+    return rx.cond(
+        payload,  # Si hay datos 3D
+        rx.vstack(
+            rx.box(
+                # Aquí se integraría el componente Three.js/Plotly real
+                rx.center(
+                    rx.vstack(
+                        rx.icon(tag="box", size=40, color="gray"),
+                        rx.text("Renderizado 3D Activo", color="gray", size="2"),
+                        spacing="2",
+                    ),
+                    height="400px",
+                    width="100%",
+                    bg="blackAlpha.50",
+                    border_radius="md",
+                ),
+                width="100%",
+            ),
+            rx.text("Use el ratón para rotar y hacer zoom en el elemento.", size="1", color_scheme="gray"),
+            width="100%",
+        ),
+        # Fallback si el formulario no tiene 3D o no se ha calculado
+        rx.center(
+            rx.text("Vista 3D no disponible para este elemento", color="gray", font_style="italic"),
+            height="200px",
+            width="100%",
+            border="1px dashed #e5e7eb",
+            border_radius="md",
+        )
+    )
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\components\__init__.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\domain\common_dto.py
+============================================================
+
+from pydantic import BaseModel, Field
+from typing import Optional
+
+class ProjectMetadataDTO(BaseModel):
+    """Información general del proyecto para cajetines y reportes."""
+    project_name: str = "Nuevo Proyecto"
+    project_id: str = "0000"
+    author: str = "Ingeniero FHECOR"
+    client: Optional[str] = None
+
+class MaterialPropertiesDTO(BaseModel):
+    """Propiedades mecánicas base."""
+    fck: float = Field(30.0, description="Resistencia característica a compresión (MPa)")
+    fyk: float = Field(500.0, description="Límite elástico del acero (MPa)")
+    gamma_c: float = 1.5
+    gamma_s: float = 1.15
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\domain\constants.py
+============================================================
+
+# Unidades estándar
+UNIT_STRESS = "MPa"
+UNIT_FORCE = "kN"
+UNIT_LENGTH = "mm"
+
+# Coeficientes parciales de seguridad (EC2)
+GAMMA_C_PERSISTENT = 1.5
+GAMMA_S_PERSISTENT = 1.15
+
+# Colores Corporativos FHECOR
+COLOR_PRIMARY = "#005596"
+COLOR_ACCENT = "#F08200"
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\domain\result_models.py
+============================================================
+
+from pydantic import BaseModel
+from typing import List, Optional
+
+class CheckResult(BaseModel):
+    description: str = ""
+    status: bool = True
+    value: float = 0.0
+    limit: float = 0.0
+    unit: str = ""
+    ratio: float = 0.0
+    reference: str = ""
+
+class SolverResponse(BaseModel):
+    is_ok: bool = True
+    summary: str = ""
+    checks: List[CheckResult] = [] # Tipado explícito para que foreach funcione
+    metadata: Optional[dict] = None
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\domain\validation.py
+============================================================
+
+from pydantic import field_validator
+
+class StructuralValidators:
+    @staticmethod
+    def must_be_positive(value: float, info):
+        if value <= 0:
+            raise ValueError(f"{info.field_name} debe ser mayor que cero.")
+        return value
+
+    @staticmethod
+    def validate_fck(value: float):
+        if value < 12 or value > 100:
+            raise ValueError("fck fuera de rango normativo (12-100 MPa).")
+        return value
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\domain\__init__.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\infrastructure\excel_export.py
+============================================================
+
+import reflex as rx
+import pandas as pd
+import io
+
+class ExcelExportProvider:
+    """Generador de archivos Excel basados en el estado del cálculo."""
+
+    @staticmethod
+    def generate_excel_report(payload: dict):
+        """
+        Convierte el payload de resultados en un archivo .xlsx descargable.
+        """
+        # Creamos un buffer en memoria
+        output = io.BytesIO()
+        
+        # Estructuramos los datos para pandas
+        df_inputs = pd.DataFrame([
+            {"Parámetro": f["label"], "Valor": f["value"], "Unidad": f["unit"]}
+            for group in payload["inputs"] for f in group["fields"]
+        ])
+        
+        df_checks = pd.DataFrame(payload["results"]["checks"])
+
+        # Escribimos con varias pestañas
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df_inputs.to_excel(writer, sheet_name='Entradas', index=False)
+            df_checks.to_excel(writer, sheet_name='Resultados', index=False)
+            
+        return rx.download(
+            data=output.getvalue(),
+            filename=f"Calculo_{payload['project_info']['title']}.xlsx",
+        )
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\infrastructure\pdf_export.py
+============================================================
+
+import reflex as rx
+from typing import Dict, Any
+
+class PDFExportProvider:
+    """Generador de documentos PDF profesionales."""
+
+    @staticmethod
+    def generate_calculation_report(payload: Dict[str, Any]):
+        """
+        Simula la creación de un PDF. 
+        En una implementación real, aquí se genera el binario con ReportLab.
+        """
+        # Formateamos un texto que represente el PDF para esta demo
+        report_content = f"MEMORIA DE CÁLCULO: {payload['project_info']['title']}\n"
+        report_content += "="*40 + "\n\n"
+        
+        for group in payload['inputs']:
+            report_content += f"--- {group['group']} ---\n"
+            for f in group['fields']:
+                report_content += f"{f['label']}: {f['value']} {f['unit']}\n"
+        
+        report_content += f"\nRESULTADO FINAL: {'OK' if payload['results']['is_ok'] else 'ERROR'}\n"
+        
+        return rx.download(
+            data=report_content,
+            filename=f"Reporte_{payload['project_info']['title'].replace(' ', '_')}.txt",
+        )
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\infrastructure\__init__.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\services\export_payloads.py
+============================================================
+
+from typing import Dict, Any
+
+class ExportPayloadService:
+    """Prepara los datos del State para los motores de impresión (PDF/Excel)."""
+
+    @staticmethod
+    def create_report_data(config: Dict[str, Any], state: Any) -> Dict[str, Any]:
+        """Extrae la información relevante para el informe final."""
+        return {
+            "project_info": {
+                "title": config.get("title"),
+                "category": config.get("category"),
+                "date": "2026-03-17", # Fecha actual
+            },
+            "inputs": [
+                {
+                    "group": group["name"],
+                    "fields": [
+                        {
+                            "label": f["label"],
+                            "value": getattr(state, f["id"]),
+                            "unit": f.get("unit", "")
+                        } for f in group["fields"]
+                    ]
+                } for group in config.get("groups", [])
+            ],
+            "results": {
+                "is_ok": state.results.is_ok,
+                "summary": state.results.summary,
+                "checks": [
+                    {
+                        "desc": c.description,
+                        "val": f"{c.value} {c.unit}",
+                        "lim": f"{c.limit} {c.unit}",
+                        "ratio": f"{c.ratio:.2f}",
+                        "status": "CUMPLE" if c.status else "NO CUMPLE"
+                    } for c in state.results.checks
+                ]
+            }
+        }
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\services\geometry_3d_utils.py
+============================================================
+
+import numpy as np
+
+class Geometry3DUtils:
+    """Generador de geometrías básicas para ingeniería estructural."""
+
+    @staticmethod
+    def create_box_mesh(width: float, height: float, depth: float):
+        """Genera vértices y caras para un paralelepípedo (vigas, muros)."""
+        # Definición de los 8 vértices
+        v = np.array([
+            [0, 0, 0], [width, 0, 0], [width, height, 0], [0, height, 0],
+            [0, 0, depth], [width, 0, depth], [width, height, depth], [0, height, depth]
+        ])
+        # Definición de las 12 caras triangulares
+        f = [
+            [0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7], # Tapas
+            [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5], # Lados
+            [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]  # Lados
+        ]
+        return {"vertices": v.tolist(), "faces": f}
+
+    @staticmethod
+    def create_cylinder_mesh(radius: float, height: float, segments: int = 16):
+        """Genera vértices para secciones circulares (pilares)."""
+        # Lógica para generar cilindro...
+        return {"type": "cylinder", "radius": radius, "height": height}
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\services\hash_service.py
+============================================================
+
+import hashlib
+import json
+
+class HashService:
+    """Genera huellas dactilares de los inputs para evitar cálculos redundantes."""
+
+    @staticmethod
+    def compute_hash(data: dict) -> str:
+        """Crea un hash SHA-256 de un diccionario de inputs."""
+        encoded_data = json.dumps(data, sort_keys=True).encode()
+        return hashlib.sha256(encoded_data).hexdigest()
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\services\sketch_utils.py
+============================================================
+
+import math
+
+class SketchUtils:
+    """Utilidades para generar elementos geométricos en SVG."""
+    
+    @staticmethod
+    def get_viewbox(width: float, height: float, padding: float = 20):
+        """Calcula el ViewBox centrado con padding."""
+        return f"-{padding} -{padding} {width + 2*padding} {height + 2*padding}"
+
+    @staticmethod
+    def polar_to_cartesian(cx, cy, radius, angle_deg):
+        """Convierte coordenadas polares a cartesianas para dibujar armaduras circulares."""
+        angle_rad = math.radians(angle_deg)
+        return (
+            cx + radius * math.cos(angle_rad),
+            cy + radius * math.sin(angle_rad)
+        )
+
+============================================================
+📁 ARCHIVO: ./structural_app\shared\services\__init__.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\tests\test_config_loader.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\tests\test_form_registry.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\tests\__init__.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\tests\forms\beam_double_t\test_adapter.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\tests\forms\beam_double_t\test_dto.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\tests\forms\beam_double_t\test_state.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\tests\forms\cortante_circular\test_adapter.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\tests\forms\cortante_circular\test_state.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\tests\forms\muro\test_adapter.py
+============================================================
+
+import pytest
+from structural_app.forms.muro.dto import MuroDTO
+from structural_app.forms.muro.adapter import calculate_element
+
+@pytest.mark.asyncio
+async def test_muro_stability_logic():
+    """Verifica que el adaptador devuelve ratios de vuelco correctos."""
+    # 1. Caso de prueba extraído del Excel histórico
+    input_data = {
+        "h_muro": 4.0, "e_superior": 0.3, "e_inferior": 0.4,
+        "b_zapata": 2.5, "c_puntera": 0.8, "h_zapata": 0.6
+    }
+    dto = MuroDTO(**input_data)
+    
+    # 2. Ejecutar cálculo a través del adaptador
+    response = await calculate_element(dto)
+    
+    # 3. Validaciones de integridad
+    assert response.is_ok is True
+    assert len(response.checks) > 0
+    # Verificamos que el ratio de vuelco sea el esperado (valor del Excel)
+    vuelco_check = next(c for c in response.checks if "Vuelco" in c.description)
+    assert 0.40 <= vuelco_check.ratio <= 0.60
+
+============================================================
+📁 ARCHIVO: ./structural_app\tests\forms\muro\test_state.py
+============================================================
+
+
+
+============================================================
+📁 ARCHIVO: ./structural_app\tests\shared\test_hash_service.py
+============================================================
+

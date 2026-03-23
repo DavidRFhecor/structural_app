@@ -67,5 +67,5 @@ def top_search_bar():
                 padding="2",
             )
         ),
-        position="relative", # Fundamental para que el menú flotante se posicione bien
+        position="relative", # Fundamental para que el menú flotante este bien posicionado
     )

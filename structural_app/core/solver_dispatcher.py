@@ -1,30 +1,47 @@
-from typing import Dict, Any
-# Importamos los adaptadores de cada formulario
-from structural_app.forms.cortante_circular import adapter as cortante_adapter
-from structural_app.forms.beam_double_t import adapter as beam_adapter
+import importlib
+from typing import Any, Dict
+from structural_app.shared.domain.result_models import SolverResponse
 
 class SolverDispatcher:
+    """
+    Despachador central que conecta los formularios con sus motores de cálculo
+    usando importaciones dinámicas para evitar importaciones circulares.
+    """
+    
+    # Mapa de rutas a los adaptadores
+    ADAPTER_MAP = {
+        "beam_double_t": "structural_app.forms.beam_double_t.adapter",
+        "cortante_circular": "structural_app.forms.cortante_circular.adapter",
+        "muro": "structural_app.forms.muro.adapter",
+    }
+
     @staticmethod
-    def dispatch_calculation(form_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def dispatch_calculation(form_key: str, payload: Dict[str, Any]) -> SolverResponse:
         """
-        Enruta la solicitud de cálculo al adaptador correspondiente.
+        Carga el adaptador bajo demanda y ejecuta el cálculo.
         """
+        if form_key not in SolverDispatcher.ADAPTER_MAP:
+            return SolverResponse(
+                is_ok=False, 
+                summary=f"Error: No existe adaptador para '{form_key}'"
+            )
+
         try:
-            if form_id == "cortante_circular":
-                # Aquí llamamos a la función del adaptador de cortante
-                return cortante_adapter.calculate_element(payload)
+            # IMPORTACIÓN DINÁMICA: Solo importamos el adaptador cuando se necesita
+            module_path = SolverDispatcher.ADAPTER_MAP[form_key]
+            adapter_module = importlib.import_module(module_path)
             
-            elif form_id == "beam_double_t":
-                # Aquí llamamos a la función del adaptador de viga doble T
-                return beam_adapter.calculate_element(payload)
-            
+            # Llamamos a la función calculate_element del adaptador
+            if hasattr(adapter_module, "calculate_element"):
+                return adapter_module.calculate_element(payload)
             else:
-                return {
-                    "success": False, 
-                    "error": f"No se encontró un solver registrado para: {form_id}"
-                }
+                return SolverResponse(
+                    is_ok=False, 
+                    summary=f"Error: El módulo {form_key} no tiene 'calculate_element'"
+                )
+                
         except Exception as e:
-            return {
-                "success": False, 
-                "error": f"Error crítico en el Dispatcher: {str(e)}"
-            }
+            return SolverResponse(
+                is_ok=False, 
+                summary=f"Error crítico en Dispatcher: {str(e)}"
+            )

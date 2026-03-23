@@ -2,6 +2,7 @@ import reflex as rx
 from structural_app.shared.components.layout import main_layout
 from structural_app.forms.beam_double_t.state import BeamDoubleTState
 from structural_app.forms.beam_double_t.sketch import beam_sketch
+from structural_app.shared.components.toolbar import form_toolbar
 
 def input_panel():
     """Panel lateral de parámetros de entrada."""
@@ -9,10 +10,12 @@ def input_panel():
         rx.heading("Parámetros de Diseño", size="5"),
         rx.divider(),
         
+        # ❌ AQUÍ ESTABA LA BARRA VIEJA. YA ESTÁ ELIMINADA.
+        
         rx.text("Geometría Sección (mm)", weight="bold", size="3"),
         
         rx.grid(
-            # Canto Total - Usa el setter específico set_h
+            # Canto Total
             rx.vstack(
                 rx.text("Canto (h)", size="2"),
                 rx.input(
@@ -23,7 +26,7 @@ def input_panel():
                 ),
                 align_items="start"
             ),
-            # Ancho Ala Superior - Usa set_value genérico
+            # Ancho Ala Superior
             rx.vstack(
                 rx.text("Ancho Sup (b_top)", size="2"),
                 rx.input(
@@ -150,27 +153,42 @@ def result_panel():
         # Barra de Ratio de Agotamiento
         rx.vstack(
             rx.hstack(
-                rx.text("Ratio de Agotamiento (Med/MRd)", size="2"),
+                rx.text("Agotamiento Flexión", font_size="0.9em", weight="medium"),
                 rx.spacer(),
-                rx.badge(
-                    rx.cond(BeamDoubleTState.util_m > 0, f"{progress_val}%", "0%"), 
-                    color_scheme=rx.cond(BeamDoubleTState.util_m > 1, "red", "green"),
-                    variant="surface"
+                rx.text(
+                    BeamDoubleTState.util_m.to_string() + "%", 
+                    weight="bold",
+                    color=rx.cond(BeamDoubleTState.util_m > 100, "red", "green")
                 ),
-                width="100%"
+                width="100%",
             ),
+            
+            # LA BARRA VISUAL:
             rx.progress(
-                value=progress_val, 
-                color_scheme=rx.cond(BeamDoubleTState.util_m > 1, "red", "green"), 
-                width="100%"
+                value=rx.cond(
+                    BeamDoubleTState.util_m > 100, 
+                    100, 
+                    BeamDoubleTState.util_m.to(int)
+                ),
+                width="100%",
+                color_scheme=rx.cond(BeamDoubleTState.util_m > 100, "red", "green"),
+                variant="surface",
             ),
-            width="100%", spacing="2"
-        ),
-        spacing="6", width="100%"
+            
+            # Mensaje de estado debajo de la barra
+            rx.cond(
+                BeamDoubleTState.util_m > 100,
+                rx.text("Sección insuficiente", color="red", font_size="0.8em"),
+                rx.text("Sección segura", color="green", font_size="0.8em"),
+            ),
+            
+            spacing="2",
+            width="100%",
+            align_items="start",
+        ), 
     )
-
 def beam_double_t_page():
-    """Página principal del formulario."""
+
     return main_layout(
         rx.grid(
             rx.card(input_panel(), padding="4"),
@@ -180,5 +198,6 @@ def beam_double_t_page():
             grid_template_columns="1fr 1.5fr",
             width="100%",
             on_mount=BeamDoubleTState.on_load 
-        )
+        ),
+        state_class=BeamDoubleTState
     )

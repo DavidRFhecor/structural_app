@@ -4,32 +4,6 @@ import sys
 import types
 
 # =========================================================================
-# 🛠️ PUENTES DE COMPATIBILIDAD (Ejecutar antes de cargar la App)
-# =========================================================================
-
-import structuralcodes
-from structuralcodes import sections
-import structuralcodes.geometry
-
-# 1. Parche para Geometría (LineGeometry desaparecida)
-if not hasattr(structuralcodes.geometry, 'LineGeometry'):
-    structuralcodes.geometry.LineGeometry = structuralcodes.geometry.Geometry
-
-# 2. Puente para structuralcodes.core.section -> structuralcodes.sections
-# Esto soluciona el error "No module named 'structuralcodes.core.section'"
-core_mod = types.ModuleType("structuralcodes.core")
-sys.modules["structuralcodes.core"] = core_mod
-
-section_mod = types.ModuleType("structuralcodes.core.section")
-sys.modules["structuralcodes.core.section"] = section_mod
-
-# Mapeamos la clase que busca FHECOR (Section) a la nueva (GenericSection)
-section_mod.Section = sections.GenericSection
-core_mod.section = section_mod
-
-print("✅ Puentes de compatibilidad activados: LineGeometry y Core.Section.")
-
-# =========================================================================
 # 🚀 IMPORTACIONES DE LA APP
 # =========================================================================
 
@@ -79,10 +53,10 @@ def create_full_app():
                 route=route, 
                 title=f"{form['title']} | FHECOR"
             )
-            print(f"✔️ Formulario registrado: {key} en {route}")
+            print(f"Formulario registrado: {key} en {route}")
             
         except Exception as e:
-            print(f"❌ Error registrando el formulario {key}: {e}")
+            print(f"Error registrando el formulario {key}: {e}")
 
     return app
 

@@ -1,11 +1,21 @@
 import reflex as rx
-from typing import Optional
+from typing import Optional, Any
 from structural_app.core.base_state import BaseState
 from structural_app.core.solver_dispatcher import SolverDispatcher
 from structural_app.forms.cortante_circular.dto import CortanteCircularDTO
 from structural_app.shared.domain.result_models import SolverResponse
 from structural_app.shared.services.export_payloads import ExportPayloadService
 from structural_app.shared.infrastructure.pdf_export import PDFExportProvider
+
+# 1. FUNCIÓN DE SEGURIDAD PARA LOS INPUTS
+def safe_float(value: Any, default: float = 0.0) -> float:
+    """Convierte inputs de la UI a números reales evitando cuelgues."""
+    try:
+        if value is None or str(value).strip() == "" or str(value).strip() == "-":
+            return default
+        return float(value)
+    except (ValueError, TypeError):
+        return default
 
 class CortanteCircularState(BaseState):
     """Maneja los inputs, resultados y visualización del cortante circular."""
@@ -19,6 +29,13 @@ class CortanteCircularState(BaseState):
 
     # --- Resultados ---
     results: Optional[SolverResponse] = SolverResponse(is_ok=True, checks=[], summary="Esperando cálculo...")
+
+    # --- SETTER LOCAL (Soluciona el error de Variable no definida) ---
+    @rx.event
+    def set_value(self, field: str, value: str):
+        """Setter genérico: Sanitiza el string antes de asignarlo."""
+        clean_val = safe_float(value)
+        setattr(self, field, clean_val)
 
     # --- Lógica de Visualización (SVG) ---
     @rx.var
@@ -51,22 +68,32 @@ class CortanteCircularState(BaseState):
         """
 
     # --- Lógica de Negocio (Cálculo y Exportación) ---
-    async def calculate(self):
-        """Ejecuta el cálculo estructural."""
+    @rx.event
+    def calculate(self):
+        """Ejecuta el cálculo estructural enviando los datos al Dispatcher."""
         self.is_calculating = True
         yield
         
-        dto = CortanteCircularDTO(
-            diametro=self.diametro,
-            fck=self.fck,
-            recubrimiento=self.recubrimiento,
-            as_principal=self.as_principal,
-            ved=self.ved
-        )
+        # El payload debe coincidir con lo que espera el adaptador y el DTO
+        payload = {
+            "diametro": self.diametro,
+            "fck": self.fck,
+            "recubrimiento": self.recubrimiento,
+            "as_principal": self.as_principal,
+            "ved": self.ved
+        }
         
-        self.results = await SolverDispatcher.dispatch("cortante_circular", dto)
+        # Llamada al motor centralizado
+        raw_result = SolverDispatcher.dispatch_calculation("cortante_circular", payload)
+        
+        if isinstance(raw_result, SolverResponse):
+            self.results = raw_result
+        else:
+            self.results = SolverResponse(is_ok=False, summary="Error de enrutamiento en Dispatcher.")
+            
         self.is_calculating = False
 
+    @rx.event
     def export_pdf(self):
         """Genera y descarga el informe técnico."""
         payload = ExportPayloadService.create_report_data(
@@ -75,8 +102,7 @@ class CortanteCircularState(BaseState):
         )
         return PDFExportProvider.generate_calculation_report(payload)
     
+    @rx.event
     def on_load(self):
-        """Este método se ejecuta al cargar la página y soluciona el error."""
         self.current_form_key = "cortante_circular"
-        # Opcional: limpiar resultados previos al entrar
-        # self.results = None
+        self.is_calculating = False

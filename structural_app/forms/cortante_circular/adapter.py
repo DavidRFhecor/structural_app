@@ -1,49 +1,54 @@
-from .dto import CortanteCircularDTO
-from ...shared.domain.result_models import SolverResponse, CheckResult
+import math
+from structural_app.forms.cortante_circular.dto import CortanteCircularDTO
+from structural_app.shared.domain.result_models import SolverResponse, CheckResult
+# Importación desde tu repositorio FHECOR
+from fhecor_structuralcodes.checks_ec2_2004 import shear_cheks
 
-# IMPORTACIONES BASADAS EN TU ESTRUCTURA DE DIRECTORIOS
-import structuralcodes
-from structuralcodes.core.section import Section
-from structuralcodes.geometry import CircularGeometry
-from structuralcodes.materials.concrete import Concrete
-
-async def calculate_element(dto: CortanteCircularDTO) -> SolverResponse:
+def calculate_element(payload: dict) -> SolverResponse:
     try:
-        # 1. Material
-        # Nota: Si Concrete() pide fck, asegúrate de pasarle el valor del DTO
-        hormigon = Concrete(fck=dto.fck)
+        # Convertimos el diccionario recibido a DTO
+        data = CortanteCircularDTO(**payload)
         
-        # 2. Geometría
-        geometria = CircularGeometry(diameter=dto.diametro)
+        # Conversión a unidades del motor (N, mm)
+        d = data.diametro - data.recubrimiento
+        Ac = (math.pi * (data.diametro**2)) / 4
+        z = 0.9 * d 
         
-        # 3. Sección
-        seccion = Section(geometry=geometria, material=hormigon)
+        # Llamada a la lógica de FHECOR (shear_cheks)
+        # Ajustamos 'asl' para que use 'as_principal' del DTO
+        results, logs = shear_cheks(
+            ved=data.ved * 1000, 
+            fck=data.fck, 
+            fyk=500,
+            asw=0, 
+            s=1, 
+            z=z, 
+            theta=45.0, 
+            d=d,
+            asl=data.as_principal, # Corregido: antes era as_longitudinal
+            bw=data.diametro,
+            ned=0, 
+            Ac=Ac, 
+            sismic_comb=False
+        )
 
-        # 4. Cálculo de Resistencia (Ejemplo conceptual)
-        # Nota: La librería de Carlos está en desarrollo. 
-        # Si la función vrdc aún no está expuesta, usamos un placeholder 
-        # pero con los objetos reales ya instanciados.
-        v_rdc = 195.5  # v_rdc = seccion.calculate_vrdc(as_long=dto.as_principal)
+        vrdc_kn = results['VRdc'] / 1000
+        ratio = data.ved / vrdc_kn if vrdc_kn > 0 else 0
+        capacidad_vrdc = results['VRdc'] / 1000  # Convertimos N a kN
         
-        cumple = v_rdc >= dto.ved
-        ratio = dto.ved / v_rdc if v_rdc > 0 else 0
-
         return SolverResponse(
-            is_ok=cumple,
-            summary=f"Cálculo completado con structuralcodes v{structuralcodes.__version__}",
+            is_ok=data.ved <= capacidad_vrdc,
+            summary="Cálculo de cortante finalizado.",
             checks=[
                 CheckResult(
-                    description="Resistencia a cortante del hormigón (Vrd,c)",
-                    status=cumple,
-                    value=dto.ved,
-                    limit=v_rdc,
+                    description="Resistencia Cortante (VRdc)",
+                    status=data.ved <= capacidad_vrdc,
+                    value=round(data.ved, 2),        # Lo que solicita el usuario
+                    limit=round(capacidad_vrdc, 2),  # Lo que resiste el hormigón
                     unit="kN",
-                    ratio=ratio,
-                    reference="EC2 Art. 6.2.2"
+                    ratio=round(data.ved / capacidad_vrdc, 2) if capacidad_vrdc > 0 else 0
                 )
             ]
         )
-        return SolverResponse(is_ok=True, summary="Sección instanciada correctamente")
-
     except Exception as e:
-        return SolverResponse(is_ok=False, summary=f"Error en el motor: {str(e)}")
+        return SolverResponse(is_ok=False, summary=f"Error en adaptador: {str(e)}")

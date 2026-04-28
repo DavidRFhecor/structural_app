@@ -1,0 +1,18 @@
+/* structural_app/assets/styles.css */
+@import url("https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&display=swap");
+
+/* Aplicación global obligatoria */
+html, body, * {
+    font-family: 'Lato', sans-serif !important;
+}
+
+body {
+    font-weight: 300 !important; /* Lato Light como requisito */
+    color: rgb(0, 50, 100) !important;
+}
+
+/* Encabezados con el color corporativo */
+h1, h2, h3, .rt-Heading {
+    color: rgb(0, 50, 100) !important;
+    font-weight: 700 !important;
+}

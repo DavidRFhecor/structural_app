@@ -1,0 +1,61 @@
+{
+  "form_key": "analisis_completo",
+  "title": "Análisis Completo EC2 (Fisuración y Cortante)",
+  "description": "Evaluación de ancho de fisura y resistencia a esfuerzo cortante en sección rectangular.",
+  "norm_version": "ec2_2004",
+  "template_type": "single_check_form",
+  
+  "logic": {
+    "function": "shear_cheks",
+    "outputs": [
+      {
+        "key": "VRdc",
+        "label": "Resistencia Cortante (VRd,c)",
+        "unit": "kN",
+        "factor": 0.001,
+        "compare_against": "ved"
+      }
+    ]
+  },
+  "groups": [
+    {
+      "name": "Geometría y Materiales",
+      "fields": [
+        { "id": "bw", "label": "Ancho (b)", "unit": "mm", "default": 300.0 },
+        { "id": "h", "label": "Canto (h)", "unit": "mm", "default": 500.0 },
+        { "id": "d", "label": "Canto útil (d)", "unit": "mm", "default": 450.0 },
+        { "id": "c", "label": "Recubrimiento (c)", "unit": "mm", "default": 40.0 },
+        { "id": "fck", "label": "fck", "unit": "MPa", "default": 30.0 },
+        { "id": "fyk", "label": "fyk (Acero)", "unit": "MPa", "default": 500.0 }
+      ]
+    },
+    {
+      "name": "Esfuerzos",
+      "fields": [
+        { "id": "ved", "label": "Cortante (Ved)", "unit": "kN", "default": 150.0 },
+        { "id": "ned", "label": "Axil (Ned)", "unit": "kN", "default": 0.0 }
+      ]
+    },
+    {
+      "name": "Armadura Longitudinal (Fisuración)",
+      "fields": [
+        { "id": "As", "label": "Área armadura (As)", "unit": "mm²", "default": 1200.0 },
+        { "id": "phi_eq", "label": "Diámetro eq. (phi)", "unit": "mm", "default": 16.0 },
+        { "id": "sigma_s", "label": "Tensión acero", "unit": "MPa", "default": 200.0 }
+      ]
+    },
+    {
+      "name": "Armadura Transversal (Cortante)",
+      "fields": [
+        { "id": "asw", "label": "Área estribos (asw)", "unit": "mm²", "default": 157.0 },
+        { "id": "s", "label": "Separación (s)", "unit": "mm", "default": 200.0 },
+        { "id": "theta", "label": "Ángulo bielas", "unit": "°", "default": 45.0 }
+      ]
+    }
+  ],
+  "features": { 
+    "svg": true, 
+    "viewer_3d": false,
+    "sketch": false
+  }
+}

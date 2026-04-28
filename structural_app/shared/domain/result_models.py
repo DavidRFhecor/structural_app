@@ -1,17 +1,17 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Optional, List, Dict, Any
 
 class CheckResult(BaseModel):
-    description: str = ""
-    status: bool = True
-    value: float = 0.0
-    limit: float = 0.0
-    unit: str = ""
+    description: str
+    status: bool
+    value: float
+    limit: float
+    unit: str
     ratio: float = 0.0
-    reference: str = ""
 
 class SolverResponse(BaseModel):
-    is_ok: bool = True
-    summary: str = ""
-    checks: List[CheckResult] = [] # Tipado explícito para que foreach funcione
-    metadata: Optional[dict] = None
+    is_ok: bool
+    summary: str
+    checks: List[CheckResult]
+    # Cambiamos a Any para que Pydantic no se queje del formato interno de Plotly
+    plot_data: Optional[Any] = None

@@ -4,34 +4,43 @@ import reflex as rx
 from typing import Dict, Any
 
 class SessionIO:
-    """Motor de serialización para guardar y cargar estados de cálculo."""
+    """Motor de persistencia para guardar y cargar estados en el disco del servidor."""
+
+    @staticmethod
+    def resolve_path(directory: str) -> str:
+        """Convierte atajos como 'descargas' en rutas absolutas del sistema."""
+        dir_limpio = directory.strip() if directory else ""
+        
+        # Detecta si el usuario quiere la carpeta de Descargas del sistema
+        if dir_limpio.lower() in ["descargas", "downloads"]:
+            return os.path.join(os.path.expanduser('~'), 'Downloads')
+            
+        return dir_limpio if dir_limpio != "" else "./"
 
     @staticmethod
     def save_to_server_disk(state_data: Dict[str, Any], directory: str, filename: str):
-        """Escribe el JSON directamente en el disco duro del servidor."""
+        """Escribe el JSON directamente en el disco duro."""
         try:
-            # Aseguramos que el nombre acabe en .json
             if not filename.endswith(".json"):
                 filename += ".json"
-                
-            # Unimos la ruta y el nombre del archivo
-            full_path = os.path.join(directory, filename)
+
+            # Usamos el resolvedor para la ruta
+            directory = SessionIO.resolve_path(directory)
+            os.makedirs(directory, exist_ok=True)
             
-            # Escribimos físicamente el archivo en el disco
+            full_path = os.path.join(directory, filename)
             with open(full_path, 'w', encoding='utf-8') as f:
                 json.dump(state_data, f, indent=4, ensure_ascii=False)
                 
-            # Devolvemos un mensaje de éxito en verde
-            return rx.toast.success(f"Guardado correctamente en: {full_path}")
-            
+            return rx.toast.success(f"Sesión guardada en: {full_path}")
         except Exception as e:
-            # Si la ruta no existe o no hay permisos, avisamos al usuario
-            return rx.toast.error(f"Error al guardar: {str(e)}")
-
+            return rx.toast.error(f"Error al guardar sesión: {str(e)}")
+            
     @staticmethod
-    def parse_upload(content: str) -> Dict[str, Any]:
-        """Convierte el archivo subido de vuelta a diccionario."""
-        try:
-            return json.loads(content)
-        except Exception:
-            return {}
+    def list_versions(directory: str, form_key: str) -> list:
+        """Busca archivos JSON que coincidan con el formulario actual."""
+        path = SessionIO.resolve_path(directory)
+        if not os.path.exists(path): return []
+        
+        files = [f for f in os.listdir(path) if f.endswith(".json") and form_key in f]
+        return sorted(files, reverse=True) # Las más recientes primero

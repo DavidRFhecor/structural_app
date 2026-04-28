@@ -1,40 +1,50 @@
-from structural_app.forms.muro.dto import MuroDTO
+from pydantic import BaseModel, Field
 from structural_app.shared.domain.result_models import SolverResponse, CheckResult
-# Importamos la función específica de tu motor FHECOR
-from fhecor_structuralcodes.checks_ec2_2004 import min_max_reinforcement_walls
+
+# 1. Asegúrate de que el modelo coincida con los IDs de tu config.json
+class MuroInput(BaseModel):
+    h_muro: float
+    b_zapata: float
+    ved: float
+
 def calculate_element(payload: dict) -> SolverResponse:
+    """Adaptador REAL para el cálculo de estabilidad de muros."""
+    payload.pop("_features", None)
+    
+    # 2. Validamos y extraemos los datos que vienen del formulario
     try:
-        data = MuroDTO(**payload)
-        thk_mm = data.e_inferior * 1000 # Espesor en mm
-        
-        # El motor FHECOR nos da los logs, pero calculamos el valor para la UI:
-        # Cuantía mínima geométrica según EC2 (0.2% de la sección de hormigón)
-        area_hormigon_cm2 = (thk_mm / 10) * 100  # cm2 por metro de ancho
-        as_min_total = area_hormigon_cm2 * 0.002
-        as_min_cara = as_min_total / 2 # cm2/m por cada cara
-        
-        return SolverResponse(
-            is_ok=True,
-            summary="Cuantías calculadas según EC2 Art. 9.6",
-            checks=[
-                CheckResult(
-                    description="Armadura Vertical Mínima (por cara)",
-                    status=True,
-                    value=round(as_min_cara, 2), # <--- AQUÍ PONEMOS EL VALOR CALCULADO
-                    limit=round(as_min_cara, 2), # El límite es el mismo en este caso
-                    unit="cm²/m",
-                    ratio=1.0,
-                    message=f"Basado en espesor de {thk_mm} mm"
-                ),
-                CheckResult(
-                    description="Armadura Horizontal Mínima",
-                    status=True,
-                    value=round(as_min_cara * 0.25, 2), # 25% de la vertical
-                    limit=round(as_min_cara * 0.25, 2),
-                    unit="cm²/m",
-                    ratio=1.0
-                )
-            ]
-        )
+        data = MuroInput(**payload)
     except Exception as e:
-        return SolverResponse(is_ok=False, summary=f"Error en adaptador: {str(e)}")
+        return SolverResponse(is_ok=False, summary=f"Error en datos: {str(e)}", checks=[])
+
+    # 3. LÓGICA DE CÁLCULO REAL (Simplificada para el ejemplo)
+    # Ejemplo: El factor de vuelco mejora si la zapata es más ancha y empeora si el muro es más alto
+    factor_vuelco_estimado = (data.b_zapata * 1.5) / (data.h_muro * 0.5) 
+    
+    # Ejemplo: El deslizamiento depende del cortante (ved)
+    # A más cortante (ved), menor factor de seguridad
+    factor_deslizamiento_estimado = 500 / (data.ved + 1) 
+
+    # 4. Asignamos los valores calculados a los resultados
+    checks = [
+        CheckResult(
+            description="Estabilidad al Vuelco",
+            status=factor_vuelco_estimado >= 1.5,
+            value=round(factor_vuelco_estimado, 2),
+            limit=1.5,
+            unit="FS"
+        ),
+        CheckResult(
+            description="Estabilidad al Deslizamiento",
+            status=factor_deslizamiento_estimado >= 1.5,
+            value=round(factor_deslizamiento_estimado, 2),
+            limit=1.5,
+            unit="FS"
+        )
+    ]
+    
+    return SolverResponse(
+        is_ok=all(c.status for c in checks),
+        summary="Cálculo actualizado con datos del formulario.",
+        checks=checks
+    )

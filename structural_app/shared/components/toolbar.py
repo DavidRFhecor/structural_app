@@ -6,16 +6,29 @@ def form_toolbar(state_class: rx.State, upload_id: str = "upload_json"):
     # 1. EL DIÁLOGO FLOTANTE DE GUARDADO
     save_dialog = rx.dialog.root(
         rx.dialog.content(
-            rx.dialog.title("Guardar Proyecto"),
-            rx.dialog.description("Introduce el nombre con el que deseas guardar este cálculo:"),
+            rx.dialog.title("Guardar Proyecto en Servidor"),
+            rx.dialog.description("Especifica la ruta y el nombre para guardar en la red:"),
             
-            rx.box(
-                rx.input(
-                    value=state_class.save_filename,
-                    on_change=state_class.set_save_filename, 
-                    placeholder="nombre_del_archivo.json",
+            rx.vstack(
+                rx.vstack(
+                    rx.text("Ruta de la carpeta (ej. D:\\Proyectos):", weight="bold", size="2"),
+                    rx.input(
+                        value=state_class.save_path, 
+                        on_change=state_class.set_save_path, 
+                        width="100%"
+                    ),
+                    spacing="1", width="100%",
                 ),
-                margin_y="4",
+                rx.vstack(
+                    rx.text("Nombre del archivo:", weight="bold", size="2"),
+                    rx.input(
+                        value=state_class.save_filename, 
+                        on_change=state_class.set_save_filename, 
+                        width="100%"
+                    ),
+                    spacing="1", width="100%",
+                ),
+                spacing="4", margin_y="4", width="100%",
             ),
             
             rx.flex(
@@ -27,7 +40,7 @@ def form_toolbar(state_class: rx.State, upload_id: str = "upload_json"):
                     cursor="pointer",
                 ),
                 rx.button(
-                    "Confirmar Guardado", 
+                    "Guardar en Servidor", 
                     on_click=state_class.save_session, 
                     cursor="pointer",
                 ),
@@ -42,13 +55,15 @@ def form_toolbar(state_class: rx.State, upload_id: str = "upload_json"):
     return rx.hstack(
         save_dialog,
         
-        # SUSTITUIMOS BUTTON_GROUP POR HSTACK
         rx.hstack(
+            # Botón Guardar
             rx.button(
                 rx.icon("save"), "Guardar", 
                 on_click=state_class.open_save_dialog,
                 variant="soft", size="2", cursor="pointer"
             ),
+            
+            # Botón Cargar
             rx.upload(
                 rx.button(rx.icon("upload"), "Cargar", variant="soft", size="2", cursor="pointer"),
                 id=upload_id,
@@ -57,7 +72,30 @@ def form_toolbar(state_class: rx.State, upload_id: str = "upload_json"):
                 accept={"application/json": [".json"]},
                 max_files=1,
             ),
-            spacing="1", # Espacio pequeño para que parezcan agrupados
+            
+            # --- Menú Desplegable de Exportación ---
+            rx.menu.root(
+                rx.menu.trigger(
+                    rx.button(
+                        rx.icon("download"), 
+                        variant="soft", color_scheme="green", size="2", cursor="pointer"
+                    ),
+                ),
+                rx.menu.content(
+                    rx.menu.item(
+                        "Exportar a Excel (.xlsx)", 
+                        on_click=state_class.export_excel,
+                        cursor="pointer"
+                    ),
+                    rx.menu.separator(),
+                    rx.menu.item(
+                        "Exportar a PDF", 
+                        on_click=state_class.export_pdf,
+                        cursor="pointer"
+                    ),
+                ),
+            ),
+            spacing="1", 
         ),
         
         rx.spacer(),

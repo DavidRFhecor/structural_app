@@ -6,6 +6,8 @@ def init_logger():
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
+    logging.getLogger("fontTools.subset").setLevel(logging.WARNING)
+    
     logger = logging.getLogger("structural_app")
     logger.info("Logger inicializado correctamente.")
     return logger

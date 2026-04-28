@@ -1,64 +1,37 @@
 import reflex as rx
-import importlib
-import sys
-import types
-
-# =========================================================================
-# 🚀 IMPORTACIONES DE LA APP
-# =========================================================================
-
 from structural_app.core.form_registry import FormRegistry
-from structural_app.core.config_loader import ConfigLoader
 from structural_app.core.logger_config import init_logger
 from structural_app.pages.index import index
+from structural_app.shared.components.generic_page import generic_form_page
+from structural_app.core.base_state import BaseState
 
 def create_full_app():
-    # Inicialización de servicios core
     init_logger()
-    
-    # Podrías descomentar esto si quieres cargar configuraciones de JSON/YAML
-    # ConfigLoader.load_all_forms()
-
     app = rx.App(
+        stylesheets=[
+            "https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&display=swap",
+            "styles.css",  # Quita la barra inicial si "/" falla en Windows
+        ],
         style={
-            "font_family": "Inter",
-            "background_color": "#f9fafb"
-        },
-        theme=rx.theme(
-            appearance="light",
-            has_background=True,
-            accent_color="blue",
-        )
+            "font_family": "Lato",
+            "color": "rgb(0, 50, 100)", # Azul corporativo FHECOR [cite: 6]
+        }
     )
 
-    # 1. Registrar el Dashboard Principal (Página de inicio)
-    app.add_page(index, route="/", title="Structural Hub | Home")
-
-    # 2. Registro dinámico de formularios (Módulos de cálculo)
+    app.add_page(
+        index, 
+        route="/", 
+        title="Structural Hub", 
+        on_load=BaseState.clear_state_on_index 
+    )
     for form in FormRegistry.values():
         key = form["form_key"]
-        try:
-            # Construimos la ruta del módulo dinámicamente
-            module_path = f"structural_app.forms.{key}.page"
-            module = importlib.import_module(module_path)
-            
-            # Buscamos la función de la página (ej: beam_double_t_page)
-            page_component = getattr(module, f"{key}_page")
-            
-            # Normalizamos la ruta (ej: beam_double_t -> /beam-double-t)
-            route = f"/{key.replace('_', '-')}"
-            
-            app.add_page(
-                page_component, 
-                route=route, 
-                title=f"{form['title']} | FHECOR"
-            )
-            print(f"Formulario registrado: {key} en {route}")
-            
-        except Exception as e:
-            print(f"Error registrando el formulario {key}: {e}")
-
+        app.add_page(
+            generic_form_page, 
+            route=f"/{key.replace('_', '-')}", 
+            title=f"{form['title']} | FHECOR",
+            on_load=BaseState.set_current_form(key) 
+        )
     return app
 
-# Instancia global de la aplicación
 app = create_full_app()

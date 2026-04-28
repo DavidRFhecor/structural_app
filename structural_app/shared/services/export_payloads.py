@@ -18,7 +18,7 @@ class ExportPayloadService:
                     "fields": [
                         {
                             "label": f["label"],
-                            "value": getattr(state, f["id"]),
+                            "value": state.form_data.get(f["id"], 0.0),
                             "unit": f.get("unit", "")
                         } for f in group["fields"]
                     ]

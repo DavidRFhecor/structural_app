@@ -167,7 +167,7 @@ def navbar(state_class: rx.State = None):
             rx.heading(
             "FHECOR | Structural Hub", 
             size="4", 
-            color="rgb(0, 50, 100)", # Aplicación directa del color [cite: 129]
+            color="rgb(0, 50, 100)", # Aplicación directa del color 
             style={"font-weight": "700"}, # Lato Bold para el título
             on_click=st.navigate_to_index,
             cursor="pointer"

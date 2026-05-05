@@ -35,5 +35,4 @@ def generic_form_page():
             spacing="4",
             align="start",
         ),
-        state_class=BaseState 
     )

@@ -24,12 +24,13 @@ def create_full_app():
         title="Structural Hub", 
         on_load=BaseState.clear_state_on_index 
     )
-    for form in FormRegistry.values():
-        key = form["form_key"]
+    # Usamos la clave del registro (normalmente el nombre de la carpeta del formulario)
+    # para evitar fallos cuando algún `config.json` no incluya `form_key`.
+    for key, form in FormRegistry.items():
         app.add_page(
             generic_form_page, 
             route=f"/{key.replace('_', '-')}", 
-            title=f"{form['title']} | FHECOR",
+            title=f"{form.get('title', key)} | FHECOR",
             on_load=BaseState.set_current_form(key) 
         )
     return app

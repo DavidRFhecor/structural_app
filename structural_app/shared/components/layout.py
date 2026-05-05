@@ -2,6 +2,7 @@ import reflex as rx
 from structural_app.core.base_state import BaseState
 from structural_app.core.form_registry import FORM_REGISTRY, discover_forms
 from structural_app.shared.components.search_bar import top_search_bar
+from structural_app.shared.components.theory_sidebar import theory_sidebar
 
 def navbar(state_class: rx.State = None):
     # Usamos BaseState por defecto si no viene uno específico (para el Portal)
@@ -208,6 +209,16 @@ def sidebar():
 
 def main_layout(content: rx.Component, state_class: rx.State = None):
     return rx.box(
+        # Sidebar desplegable de información (solo si hay datos)
+        rx.cond(
+            BaseState.active_form_config.extended_info,
+            theory_sidebar(BaseState.active_form_config),
+            rx.cond(
+                BaseState.active_form_config.references.length() > 0,
+                theory_sidebar(BaseState.active_form_config),
+                rx.box(),
+            ),
+        ),
         navbar(state_class), 
         rx.hstack(
             sidebar(),

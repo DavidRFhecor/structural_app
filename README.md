@@ -1,35 +1,63 @@
-## Hub de Cálculo Estructural - FHECOR
+# README - Structural Hub
 
-Aplicación web profesional para el diseño y comprobación normativa de elementos estructurales, basada en **Reflex** y el motor matemático **fhecor_structuralcodes**.
+## Descripcion General
+Structural Hub es una aplicacion web interactiva desarrollada con el framework Reflex (Python). Esta diseñada para facilitar el calculo, la comprobacion y el diseño de elementos estructurales como muros de contencion, vigas y secciones de hormigon armado.
 
-##  Arquitectura
-- **Core**: Gestión de estados, sesiones y despacho de cálculos.
-- **Forms**: Módulos independientes por tipo de elemento (Muro, Viga, etc.).
-- **Shared**: Componentes UI 40/60, visor 3D y utilidades SVG.
+El sistema utiliza una arquitectura basada en un registro dinamico de formularios (JSON) y un despachador de calculos que conecta la interfaz de usuario con motores de calculo especializados.
 
-##  Instalación
-1. Clonar el repositorio.
-2. Instalar dependencias: `pip install -r requirements.txt`.
-3. Configurar el archivo `.env` con las credenciales de GitHub.
-4. Ejecutar: `reflex run`.
+## Estructura del Proyecto
+El proyecto se organiza de la siguiente manera:
 
-##  Testing
-Para ejecutar las pruebas de validación normativa:
-```bash
-pytest tests/
+- structural_app/: Directorio principal de la aplicacion.
+  - core/: Logica central (registro de formularios, gestion de sesiones, despacho de calculos).
+  - forms/: Modulos de elementos estructurales especificos (ej. muro, cortante_circular).
+  - pages/: Definiciones de las paginas y rutas de la aplicacion.
+  - shared/: Componentes reutilizables, modelos de dominio y herramientas de exportacion (PDF/Excel).
+  - tests/: Suite de pruebas unitarias y de integracion.
 
-## Requisitos de Librerías (`pyproject.toml`)
-Definimos las dependencias necesarias para soportar 3D, exportación y validación.
+## Requisitos Previos
+Para ejecutar este proyecto, es necesario tener instalado:
+1. Python 3.8 o superior.
+2. Un entorno virtual (recomendado).
+3. Librerias de calculo estructural especificas (ej. fhecor_structuralcodes).
 
-**Archivo:** `pyproject.toml`
+## Instalacion
 
-```toml
-[tool.poetry.dependencies]
-python = "^3.11"
-reflex = ">=0.4.0"
-pydantic = "^2.0"
-pandas = "^2.0"
-xlsxwriter = "^3.0"
-numpy = "^1.24"
-# Motor externo de ingeniería
-fhecor_structuralcodes = { git = "https://github.com/MestreCarlos/fhecor_structuralcodes.git" }
+1. Clonar el repositorio o descargar los archivos.
+2. Crear un entorno virtual:
+   python -m venv .venv
+3. Activar el entorno virtual:
+   - Windows: .venv\Scripts\activate
+   - Linux/Mac: source .venv/bin/activate
+4. Instalar las dependencias de Reflex y el proyecto:
+   pip install reflex pydantic plotly pandas openpyxl weasyprint
+5. Instalar los paquetes de calculo necesarios (reemplazar con el comando correspondiente si es un paquete privado):
+   pip install -e .
+
+## Ejecucion
+
+Para poner en marcha la aplicacion, sigue estos pasos:
+
+1. Inicializar el entorno de Reflex (solo si es la primera vez):
+   reflex init
+
+2. Iniciar la aplicacion en modo desarrollo:
+   reflex run
+
+3. Acceder a la interfaz:
+   Una vez que el servidor este corriendo, abre un navegador y entra en:
+   http://localhost:3000
+
+## Como añadir un nuevo elemento estructural
+El sistema es extensible sin modificar el nucleo:
+1. Crear una subcarpeta en structural_app/forms/.
+2. Incluir un archivo 'config.json' con la definicion de los campos de entrada y unidades.
+3. Crear un archivo 'adapter.py' que implemente la funcion 'calculate_element' para procesar los datos.
+
+## Ejecucion de Pruebas
+Para verificar que los adaptadores de calculo y el sistema funcionan correctamente, ejecuta:
+pytest structural_app/tests/
+
+## Autores y Licencia
+Desarrollado por FHECOR Ingenieros Consultores.
+Uso interno y restringido segun los terminos de la empresa.

@@ -6,6 +6,7 @@
   "references": [
     { "title": "EHE-08: Instrucción de Hormigón Estructural", "url": "https://www.mitma.gob.es" },
     { "title": "Eurocódigo 7: Proyecto Geotécnico", "url": "https://www.eurocode2.com" }
+    
   ],
   "category": "Geotecnia / Estructuras",
   "norm_version": "ehe08_ec7",

@@ -971,6 +971,7 @@ def calculate_element(payload: dict) -> SolverResponse:
   "references": [
     { "title": "EHE-08: Instrucción de Hormigón Estructural", "url": "https://www.mitma.gob.es" },
     { "title": "Eurocódigo 7: Proyecto Geotécnico", "url": "https://www.eurocode2.com" }
+    
   ],
   "category": "Geotecnia / Estructuras",
   "norm_version": "ehe08_ec7",
@@ -1612,43 +1613,44 @@ def render_form_tabs(config: dict) -> rx.Component:
 
 ### Archivo: ./structural_app\shared\components\generic_page.py
 ```python
-
 import reflex as rx
 from structural_app.shared.components.layout import main_layout
-from structural_app.shared.components.form_renderer import render_dynamic_form
+# Importación corregida: usamos el nombre real de la función
+from structural_app.shared.components.form_renderer import render_dynamic_form 
 from structural_app.shared.components.result_cards import results_panel
 from structural_app.core.base_state import BaseState
 from .sketch_viewer import sketch_viewer
 
 def generic_form_page():
-    """Página genérica que usa el nombre correcto de la variable: active_form_config."""
-    
-    # Usamos el nombre real definido en tu BaseState
+    """Página con disposición 50/50 equilibrada."""
     config = BaseState.active_form_config
 
     return main_layout(
         rx.flex(
-            # Panel Izquierdo: Formulario (40%)
+            # PANEL IZQUIERDO: Inputs + Sketch (50%)
             rx.box(
-                render_dynamic_form(config, BaseState),
-                sketch_viewer(BaseState),
-                width={"sm": "100%", "lg": "40%"},
+                rx.vstack(
+                    render_dynamic_form(config, BaseState),
+                    sketch_viewer(BaseState),
+                    spacing="6",
+                    width="100%",
+                ),
+                flex="1",  # Toma la mitad del espacio
                 padding="4",
-                border_right={"sm": "none", "lg": "1px solid var(--gray-4)"},
             ),
 
-            # Panel Derecho: Resultados (60%)
+            # PANEL DERECHO: Resultados (50%)
             rx.box(
                 results_panel(BaseState),
-                width={"sm": "100%", "lg": "60%"},
+                flex="1",  # Toma la otra mitad del espacio
                 padding="4",
+                border_left={"lg": "1px solid #e5e7eb"}, # Línea divisoria sutil
             ),
             
             direction={"sm": "column", "lg": "row"},
             width="100%",
-            spacing="4",
-            align="start",
-        ),
+            spacing="2",
+        )
     )
 ```
 
@@ -1780,6 +1782,7 @@ def navbar(state_class: rx.State = None):
 
     # --- LÓGICA DE BOTONES ---
     if state_class:
+        # ESTO SE MUESTRA EN LOS FORMULARIOS (Todo habilitado)
         action_buttons = rx.hstack(
             rx.button(rx.icon("save"), variant="ghost", on_click=st.set_is_save_dialog_open(True), cursor="pointer"),
             rx.button(rx.icon("upload"), variant="ghost", on_click=st.set_is_load_dialog_open(True), cursor="pointer"),
@@ -1792,10 +1795,8 @@ def navbar(state_class: rx.State = None):
                     ),
                 ),
                 rx.menu.content(
-                    # AHORA ABRE EL DIÁLOGO DE EXCEL
                     rx.menu.item("Exportar a Excel (.xlsx)", on_click=st.open_excel_dialog, cursor="pointer"),
                     rx.menu.separator(),
-                    # AHORA ABRE EL DIÁLOGO DEL PDF
                     rx.menu.item("Exportar a PDF Profesional", on_click=st.open_pdf_dialog, cursor="pointer"),
                 ),
             ),
@@ -1804,14 +1805,28 @@ def navbar(state_class: rx.State = None):
             spacing="3",
         )
     else:
+        # ESTO SE MUESTRA EN EL PORTAL (Solo carga habilitado)
         action_buttons = rx.hstack(
+            # Guardar deshabilitado
             rx.button(rx.icon("save"), variant="ghost", disabled=True, color_scheme="gray"),
-            rx.button(rx.icon("upload"), variant="ghost", on_click=st.set_is_load_dialog_open(True), cursor="pointer"),
+            
+            # CARGAR HABILITADO (Única función activa en el portal)
+            rx.button(
+                rx.icon("upload"), 
+                variant="ghost", 
+                on_click=st.set_is_load_dialog_open(True), 
+                cursor="pointer",
+                color_scheme="blue" 
+            ),
+            
+            # Descargar deshabilitado
             rx.button(rx.icon("download"), variant="ghost", disabled=True, color_scheme="gray"),
+            
+            # Reset deshabilitado
             rx.button(rx.icon("refresh-cw"), variant="ghost", disabled=True, color_scheme="gray"),
+            
             spacing="3",
         )
-
     return rx.hstack(
         dialogs,
         rx.hstack(
@@ -1838,52 +1853,24 @@ def navbar(state_class: rx.State = None):
         align="center", padding="1rem", border_bottom="1px solid #e5e7eb", width="100%",
     )
 
-def sidebar():
-    return rx.vstack(
-        rx.text("CALCULADORAS", weight="bold", size="1", color_scheme="gray", margin_bottom="1rem"),
-        rx.vstack(
-            *[
-                rx.link(
-                    rx.hstack(
-                        rx.icon("calculator", size=16),
-                        rx.text(config["title"], size="2"),
-                    ),
-                    on_click=BaseState.navigate_to_form(key), 
-                    width="100%",
-                    padding="0.5rem",
-                    border_radius="md",
-                    cursor="pointer",
-                    _hover={"bg": "#f3f4f6", "text_decoration": "none"},
-                )
-                for key, config in FORM_REGISTRY.items()
-            ],
-            width="100%",
-            spacing="1",
-        ),
-        width="250px", height="100vh", padding="1.5rem", border_right="1px solid #e5e7eb",
-    )
+
 
 def main_layout(content: rx.Component, state_class: rx.State = None):
     return rx.box(
-        # Sidebar desplegable de información (solo si hay datos)
-        rx.cond(
-            BaseState.active_form_config.extended_info,
-            theory_sidebar(BaseState.active_form_config),
-            rx.cond(
-                BaseState.active_form_config.references.length() > 0,
-                theory_sidebar(BaseState.active_form_config),
-                rx.box(),
-            ),
-        ),
         navbar(state_class), 
-        rx.hstack(
-            sidebar(),
-            rx.box(
-                content, flex="1", bg="#f9fafb",
-                height="calc(100vh - 64px)", overflow_y="auto", padding="2rem",
+        rx.center(
+            rx.container(
+                content,
+                # 'size' controla el ancho máximo del contenido y genera los márgenes
+                size="4", 
+                padding_x={"sm": "1.5em", "lg": "2em"},
+                padding_y="2em",
+                width="100%",
             ),
-            spacing="0", align_items="flex-start",
+            width="100%",
+            bg="#f9fafb",
         ),
+        min_height="100vh",
         width="100%",
     )
 

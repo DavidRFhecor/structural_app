@@ -3,6 +3,8 @@ from structural_app.core.base_state import BaseState
 from structural_app.core.form_registry import FORM_REGISTRY, discover_forms
 from structural_app.shared.components.search_bar import top_search_bar
 from structural_app.shared.components.theory_sidebar import theory_sidebar
+from .theory_sidebar import theory_sidebar
+
 
 def navbar(state_class: rx.State = None):
     # Usamos BaseState por defecto si no viene uno específico (para el Portal)
@@ -197,8 +199,13 @@ def navbar(state_class: rx.State = None):
 
 
 
-def main_layout(content: rx.Component, state_class: rx.State = None):
+def main_layout(content: rx.Component, state_class: rx.State = None, child: rx.Component = None):
     return rx.box(
+        theory_sidebar(), # El pop-up vive aquí, invisible hasta que show_theory_popup sea True
+        rx.container(
+            child,
+            padding_top="2em",
+        ),
         navbar(state_class), 
         rx.center(
             rx.container(

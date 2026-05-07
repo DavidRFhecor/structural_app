@@ -22,21 +22,21 @@
           "name": "1.1 Geometría del Muro",
           "layout_columns": 2,
           "fields": [
-            { "id": "h_muro",        "label": "Altura sobre zapata, H",     "unit": "m",   "default": 6.5,  "min": 0.5,  "max": 30.0, "step": 0.1 },
-            { "id": "e_coronacion",  "label": "Ancho en coronación, e",      "unit": "m",   "default": 0.5,  "min": 0.2,  "max": 2.0,  "step": 0.05 },
-            { "id": "incl_trasdos",  "label": "Inclinación trasdós (1H/xV)", "unit": "—",   "default": 100000.0, "min": 1.0, "step": 1.0 },
-            { "id": "long_alzado",   "label": "Longitud alzado",             "unit": "m",   "default": 1.0,  "min": 0.1,  "step": 0.5 }
+            { "id": "h_muro",        "label": "Altura sobre zapata, H",     "unit": "m",   "default": 6.5,  "min": 0.5,  "max": 30.0, "step": 0.1},
+            { "id": "e_coronacion",  "label": "Ancho en coronación, e",      "unit": "m",   "default": 0.5,  "min": 0.2,  "max": 2.0,  "step": 0.05, "help_text": "Ancho de la coronación del muro" },
+            { "id": "incl_trasdos",  "label": "Inclinación trasdós (1H/xV)", "unit": "—",   "default": 100000.0, "min": 1.0, "step": 1.0},
+            { "id": "long_alzado",   "label": "Longitud alzado",             "unit": "m",   "default": 1.0,  "min": 0.1,  "step": 0.5, "help_text": "Longitud del alzado del muro" }
           ]
         },
         {
           "name": "1.1 Geometría de la Zapata",
           "layout_columns": 2,
           "fields": [
-            { "id": "puntera",       "label": "Puntera",                     "unit": "m",   "default": 1.5,  "min": 0.0,  "step": 0.1 },
-            { "id": "talon",         "label": "Talón",                       "unit": "m",   "default": 3.0,  "min": 0.0,  "step": 0.1 },
-            { "id": "canto_min_zap", "label": "Canto mínimo zapata, Cmin",  "unit": "m",   "default": 1.0,  "min": 0.3,  "step": 0.05 },
-            { "id": "canto_max_zap", "label": "Canto máximo zapata, Cmax",  "unit": "m",   "default": 1.5,  "min": 0.3,  "step": 0.05 },
-            { "id": "long_zapata",   "label": "Longitud zapata",             "unit": "m",   "default": 1.0,  "min": 0.1,  "step": 0.5 }
+            { "id": "puntera",       "label": "Puntera",                     "unit": "m",   "default": 1.5,  "min": 0.0,  "step": 0.1, "help_text": "Longitud de la puntera de la zapata, medida desde el borde del muro" },
+            { "id": "talon",         "label": "Talón",                       "unit": "m",   "default": 3.0,  "min": 0.0,  "step": 0.1, "help_text": "Longitud del talón de la zapata, medida desde el borde del muro" },
+            { "id": "canto_min_zap", "label": "Canto mínimo zapata, Cmin",  "unit": "m",   "default": 1.0,  "min": 0.3,  "step": 0.05, "help_text": "Canto mínimo de la zapata" },
+            { "id": "canto_max_zap", "label": "Canto máximo zapata, Cmax",  "unit": "m",   "default": 1.5,  "min": 0.3,  "step": 0.05, "help_text": "Canto máximo de la zapata" },
+            { "id": "long_zapata",   "label": "Longitud zapata",             "unit": "m",   "default": 1.0,  "min": 0.1,  "step": 0.5, "help_text": "Longitud de la zapata" }
           ]
         }
       ]
@@ -50,21 +50,21 @@
           "name": "1.2 Características del Relleno",
           "layout_columns": 2,
           "fields": [
-            { "id": "gamma_relleno", "label": "Peso específico relleno, γ",  "unit": "kN/m³", "default": 18.0, "min": 10.0, "max": 24.0, "step": 0.5 },
-            { "id": "phi_relleno",   "label": "Ángulo rozamiento interno, Ø","unit": "°",     "default": 27.0, "min": 10.0, "max": 45.0, "step": 1.0 },
-            { "id": "delta_coulomb", "label": "Rozamiento muro-tierra, δ",   "unit": "°",     "default": 15.0, "min": 0.0,  "max": 30.0, "step": 1.0 },
-            { "id": "beta_relleno",  "label": "Inclinación superficie, β",   "unit": "°",     "default": 0.0,  "min": 0.0,  "max": 30.0, "step": 1.0 },
-            { "id": "sc",            "label": "Sobrecarga superficial, sc",  "unit": "kN/m²", "default": 10.0, "min": 0.0,  "step": 1.0 }
+            { "id": "gamma_relleno", "label": "Peso específico relleno, γ",  "unit": "kN/m³", "default": 18.0, "min": 10.0, "max": 24.0, "step": 0.5, "help_text": "Peso específico del relleno" },   
+            { "id": "phi_relleno",   "label": "Ángulo rozamiento interno, Ø","unit": "°",     "default": 27.0, "min": 10.0, "max": 45.0, "step": 1.0, "help_text": "Ángulo de rozamiento interno del relleno"},
+            { "id": "delta_coulomb", "label": "Rozamiento muro-tierra, δ",   "unit": "°",     "default": 15.0, "min": 0.0,  "max": 30.0, "step": 1.0, "help_text": "Ángulo de rozamiento muro-tierra" },
+            { "id": "beta_relleno",  "label": "Inclinación superficie, β",   "unit": "°",     "default": 0.0,  "min": 0.0,  "max": 30.0, "step": 1.0, "help_text": "Inclinación de la superficie del relleno" },
+            { "id": "sc",            "label": "Sobrecarga superficial, sc",  "unit": "kN/m²", "default": 10.0, "min": 0.0,  "step": 1.0, "help_text": "Sobrecarga superficial del relleno" }
           ]
         },
         {
           "name": "1.3 Características del Terreno de Apoyo",
           "layout_columns": 2,
           "fields": [
-            { "id": "sigma_adm_est", "label": "Tensión admisible estática",  "unit": "kg/cm²","default": 2.0,  "min": 0.5,  "step": 0.5 },
-            { "id": "sigma_adm_sis", "label": "Tensión admisible sísmica",   "unit": "kg/cm²","default": 3.0,  "min": 0.5,  "step": 0.5 },
-            { "id": "pct_comprimido","label": "% mínimo zapata comprimida",  "unit": "%",     "default": 75.0, "min": 0.0,  "max": 100.0,"step": 5.0 },
-            { "id": "phi_terreno",   "label": "Ángulo rozamiento terreno, Ø","unit": "°",     "default": 30.0, "min": 10.0, "max": 45.0, "step": 1.0 }
+            { "id": "sigma_adm_est", "label": "Tensión admisible estática",  "unit": "kg/cm²","default": 2.0,  "min": 0.5,  "step": 0.5, "help_text": "Tensión admisible estática del terreno" },
+            { "id": "sigma_adm_sis", "label": "Tensión admisible sísmica",   "unit": "kg/cm²","default": 3.0,  "min": 0.5,  "step": 0.5, "help_text": "Tensión admisible sísmica del terreno"},
+            { "id": "pct_comprimido","label": "% mínimo zapata comprimida",  "unit": "%",     "default": 75.0, "min": 0.0,  "max": 100.0,"step": 5.0, "help_text": "Porcentaje mínimo de la zapata que debe estar comprimida" },
+            { "id": "phi_terreno",   "label": "Ángulo rozamiento terreno, Ø","unit": "°",     "default": 30.0, "min": 10.0, "max": 45.0, "step": 1.0, "help_text": "Ángulo de rozamiento del terreno" }
           ]
         }
       ]
@@ -78,39 +78,39 @@
           "name": "1.4 Acciones en Cabeza del Muro",
           "layout_columns": 2,
           "fields": [
-            { "id": "carga_h",   "label": "Carga horizontal",  "unit": "kN/m", "default": 0.0, "reference": "Positiva si desestabiliza" },
-            { "id": "carga_v",   "label": "Carga vertical",    "unit": "kN/m", "default": 0.0, "reference": "Positiva si comprime" },
-            { "id": "momento",   "label": "Momento",           "unit": "mkN/m","default": 0.0, "reference": "Positivo si desestabiliza" }
+            { "id": "carga_h",   "label": "Carga horizontal",  "unit": "kN/m", "default": 0.0, "reference": "Positiva si desestabiliza", "help_text": "Carga horizontal aplicada en la cabeza del muro" },
+            { "id": "carga_v",   "label": "Carga vertical",    "unit": "kN/m", "default": 0.0, "reference": "Positiva si comprime", "help_text": "Carga vertical aplicada en la cabeza del muro" },
+            { "id": "momento",   "label": "Momento",           "unit": "mkN/m","default": 0.0, "reference": "Positivo si desestabiliza", "help_text": "Momento aplicado en la cabeza del muro" }
           ]
         },
         {
           "name": "1.5 Acciones Sísmicas",
           "layout_columns": 2,
           "fields": [
-            { "id": "considerar_sismo",  "label": "Considerar sismo",             "type": "toggle", "default": false },
-            { "id": "inercia_muro",      "label": "Considerar inercia del muro",  "type": "toggle", "default": true },
-            { "id": "inercia_zapata",    "label": "Considerar inercia de zapata", "type": "toggle", "default": false },
-            { "id": "ac_horizontal",     "label": "Aceleración horizontal, αh",   "unit": "g",  "default": 0.7,  "min": 0.0, "max": 2.0, "step": 0.05 },
-            { "id": "ac_vertical",       "label": "Aceleración vertical, αv",     "unit": "g",  "default": 0.35, "min": 0.0, "max": 2.0, "step": 0.05 }
+            { "id": "considerar_sismo",  "label": "Considerar sismo",             "type": "toggle", "default": false, "help_text": "Si se considera el sismo en el cálculo" },
+            { "id": "inercia_muro",      "label": "Considerar inercia del muro",  "type": "toggle", "default": true, "help_text": "Si se considera la inercia del muro en el cálculo" },
+            { "id": "inercia_zapata",    "label": "Considerar inercia de zapata", "type": "toggle", "default": false, "help_text": "Si se considera la inercia de la zapata en el cálculo" },
+            { "id": "ac_horizontal",     "label": "Aceleración horizontal, αh",   "unit": "g",  "default": 0.7,  "min": 0.0, "max": 2.0, "step": 0.05, "help_text": "Aceleración horizontal aplicada en el cálculo" },
+            { "id": "ac_vertical",       "label": "Aceleración vertical, αv",     "unit": "g",  "default": 0.35, "min": 0.0, "max": 2.0, "step": 0.05, "help_text": "Aceleración vertical aplicada en el cálculo" }
           ]
         },
         {
           "name": "1.6 Coeficientes de Mayoración",
           "layout_columns": 2,
           "fields": [
-            { "id": "gamma_carga_est", "label": "Coef. mayoración estático, γ",  "unit": "—", "default": 1.5, "min": 1.0, "step": 0.05 },
-            { "id": "gamma_carga_sis", "label": "Coef. mayoración sísmico, γ",   "unit": "—", "default": 1.0, "min": 1.0, "step": 0.05 },
-            { "id": "psi_sc",          "label": "Coef. sobrecarga combinación",  "unit": "—", "default": 0.2, "min": 0.0, "max": 1.0, "step": 0.05 }
+            { "id": "gamma_carga_est", "label": "Coef. mayoración estático, γ",  "unit": "—", "default": 1.5, "min": 1.0, "step": 0.05, "help_text": "Coeficiente de mayoración estático" },
+            { "id": "gamma_carga_sis", "label": "Coef. mayoración sísmico, γ",   "unit": "—", "default": 1.0, "min": 1.0, "step": 0.05, "help_text": "Coeficiente de mayoración sísmico" },
+            { "id": "psi_sc",          "label": "Coef. sobrecarga combinación",  "unit": "—", "default": 0.2, "min": 0.0, "max": 1.0, "step": 0.05, "help_text": "Coeficiente de sobrecarga combinación" }
           ]
         },
         {
           "name": "1.7 Coeficientes de Seguridad",
           "layout_columns": 2,
           "fields": [
-            { "id": "fs_desliz_est", "label": "FS deslizamiento estático",  "unit": "—", "default": 1.5,   "min": 1.0, "step": 0.05, "reference": "EC7 §6.5.3" },
-            { "id": "fs_desliz_sis", "label": "FS deslizamiento sísmico",   "unit": "—", "default": 1.1,   "min": 1.0, "step": 0.05 },
-            { "id": "fs_vuelco_est", "label": "FS vuelco estático",         "unit": "—", "default": 1.8,   "min": 1.0, "step": 0.05, "reference": "EC7 §6.5.4" },
-            { "id": "fs_vuelco_sis", "label": "FS vuelco sísmico",          "unit": "—", "default": 1.265, "min": 1.0, "step": 0.05 }
+            { "id": "fs_desliz_est", "label": "FS deslizamiento estático",  "unit": "—", "default": 1.5,   "min": 1.0, "step": 0.05, "reference": "EC7 §6.5.3", "help_text": "Factor de seguridad al deslizamiento estático" },
+            { "id": "fs_desliz_sis", "label": "FS deslizamiento sísmico",   "unit": "—", "default": 1.1,   "min": 1.0, "step": 0.05, "help_text": "Factor de seguridad al deslizamiento sísmico" },
+            { "id": "fs_vuelco_est", "label": "FS vuelco estático",         "unit": "—", "default": 1.8,   "min": 1.0, "step": 0.05, "reference": "EC7 §6.5.4", "help_text": "Factor de seguridad al vuelco estático" },
+            { "id": "fs_vuelco_sis", "label": "FS vuelco sísmico",          "unit": "—", "default": 1.265, "min": 1.0, "step": 0.05, "help_text": "Factor de seguridad al vuelco sísmico" }
           ]
         }
       ]
@@ -156,7 +156,7 @@
           "layout_columns": 2,
           "fields": [
             { "id": "coulomb_d", "label": "Ángulo rozamiento δ (Coulomb)", "unit": "°", "default": 15.0, "min": 0.0, "max": 30.0, "step": 1.0 },
-            { "id": "coulomb_a", "label": "Inclinación trasdós α (Coulomb)","unit": "°", "default": 0.0,  "min": 0.0, "max": 45.0, "step": 1.0 }
+            { "id": "coulomb_a", "label": "Inclinación trasdós α (Coulomb)","unit": "°", "default": 0.0,  "min": 0.0, "max": 45.0, "step": 1.0, "help_text": "Inclinación del trasdós del muro" }
           ]
         }
       ]

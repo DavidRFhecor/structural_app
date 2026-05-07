@@ -1,5 +1,7 @@
 import reflex as rx
 
+from structural_app.core.base_state import BaseState
+
 def form_toolbar(state_class: rx.State, upload_id: str = "upload_json"):
     """Barra de acciones universal con diálogo de guardado."""
     
@@ -28,7 +30,9 @@ def form_toolbar(state_class: rx.State, upload_id: str = "upload_json"):
                     ),
                     spacing="1", width="100%",
                 ),
-                spacing="4", margin_y="4", width="100%",
+                spacing="1",
+                margin_y="2",
+                width="100%",
             ),
             
             rx.flex(
@@ -99,12 +103,18 @@ def form_toolbar(state_class: rx.State, upload_id: str = "upload_json"):
         ),
         
         rx.spacer(),
+        
         rx.button(
             rx.icon("refresh-cw"), 
             on_click=state_class.reset_form,
             variant="ghost", size="2", color_scheme="red", cursor="pointer"
         ),
+        
+        # --- AJUSTES PARA REDUCIR ESPACIO SUPERIOR ---
         width="100%",
-        padding_y="2",
+        padding_top="0px",       # Elimina el espacio interno superior
+        padding_bottom="4px",    # Deja un pequeño espacio abajo para equilibrio visual
+        margin_top="-8px",       # Sube el componente para anular el gap del contenedor padre
+        align="center",          # Centra los elementos verticalmente
         border_bottom="1px solid #f3f4f6",
     )

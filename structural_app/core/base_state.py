@@ -29,6 +29,7 @@ class FormField(BaseModel):
     type: str = "number"
     default: Any = 0.0
     options: List[Dict[str, Any]] = []
+    help_text: str = ""
 class FormElement(BaseModel):
     """Representa tanto un grupo de campos como una tabla."""
     type: str = "group"
@@ -67,7 +68,7 @@ class BaseState(rx.State):
     search_query: str = ""
     form_data: Dict[str, Any] = {}
     results: SolverResponse = SolverResponse(is_ok=True, checks=[], summary="Esperando datos...")
-    show_theory_sidebar: bool = False
+    show_theory_popup: bool = False
 
     # Gestión de Archivos de Sesión (JSON)
     save_filename: str = "proyecto_calculo.json"
@@ -83,10 +84,20 @@ class BaseState(rx.State):
     excel_filename: str = "reporte_calculo.xlsx"
     is_excel_dialog_open: bool = False
 
-    @rx.event
-    def toggle_theory(self):
-        self.show_theory_sidebar = not self.show_theory_sidebar
 
+    def toggle_theory(self):
+        self.show_theory_popup = not self.show_theory_popup
+
+    @rx.var
+    def current_theory_content(self) -> str:
+        """Retorna el contenido de teoría asegurando siempre un string."""
+        if not self.active_form_config:
+            return ""
+        
+        # Usamos getattr por seguridad y nos aseguramos de devolver str
+        content = getattr(self.active_form_config, "extended_info", "")
+        return content if content is not None else ""
+        
     @rx.var
     def plot_fig(self) -> go.Figure:
         if self.results and self.results.plot_data:

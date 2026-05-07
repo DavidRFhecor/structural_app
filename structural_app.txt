@@ -147,6 +147,7 @@ class FormField(BaseModel):
     type: str = "number"
     default: Any = 0.0
     options: List[Dict[str, Any]] = []
+    help_text: str = ""
 class FormElement(BaseModel):
     """Representa tanto un grupo de campos como una tabla."""
     type: str = "group"
@@ -185,7 +186,7 @@ class BaseState(rx.State):
     search_query: str = ""
     form_data: Dict[str, Any] = {}
     results: SolverResponse = SolverResponse(is_ok=True, checks=[], summary="Esperando datos...")
-    show_theory_sidebar: bool = False
+    show_theory_popup: bool = False
 
     # Gestión de Archivos de Sesión (JSON)
     save_filename: str = "proyecto_calculo.json"
@@ -201,10 +202,20 @@ class BaseState(rx.State):
     excel_filename: str = "reporte_calculo.xlsx"
     is_excel_dialog_open: bool = False
 
-    @rx.event
-    def toggle_theory(self):
-        self.show_theory_sidebar = not self.show_theory_sidebar
 
+    def toggle_theory(self):
+        self.show_theory_popup = not self.show_theory_popup
+
+    @rx.var
+    def current_theory_content(self) -> str:
+        """Retorna el contenido de teoría asegurando siempre un string."""
+        if not self.active_form_config:
+            return ""
+        
+        # Usamos getattr por seguridad y nos aseguramos de devolver str
+        content = getattr(self.active_form_config, "extended_info", "")
+        return content if content is not None else ""
+        
     @rx.var
     def plot_fig(self) -> go.Figure:
         if self.results and self.results.plot_data:
@@ -987,21 +998,21 @@ def calculate_element(payload: dict) -> SolverResponse:
           "name": "1.1 Geometría del Muro",
           "layout_columns": 2,
           "fields": [
-            { "id": "h_muro",        "label": "Altura sobre zapata, H",     "unit": "m",   "default": 6.5,  "min": 0.5,  "max": 30.0, "step": 0.1 },
-            { "id": "e_coronacion",  "label": "Ancho en coronación, e",      "unit": "m",   "default": 0.5,  "min": 0.2,  "max": 2.0,  "step": 0.05 },
-            { "id": "incl_trasdos",  "label": "Inclinación trasdós (1H/xV)", "unit": "—",   "default": 100000.0, "min": 1.0, "step": 1.0 },
-            { "id": "long_alzado",   "label": "Longitud alzado",             "unit": "m",   "default": 1.0,  "min": 0.1,  "step": 0.5 }
+            { "id": "h_muro",        "label": "Altura sobre zapata, H",     "unit": "m",   "default": 6.5,  "min": 0.5,  "max": 30.0, "step": 0.1},
+            { "id": "e_coronacion",  "label": "Ancho en coronación, e",      "unit": "m",   "default": 0.5,  "min": 0.2,  "max": 2.0,  "step": 0.05, "help_text": "Ancho de la coronación del muro" },
+            { "id": "incl_trasdos",  "label": "Inclinación trasdós (1H/xV)", "unit": "—",   "default": 100000.0, "min": 1.0, "step": 1.0},
+            { "id": "long_alzado",   "label": "Longitud alzado",             "unit": "m",   "default": 1.0,  "min": 0.1,  "step": 0.5, "help_text": "Longitud del alzado del muro" }
           ]
         },
         {
           "name": "1.1 Geometría de la Zapata",
           "layout_columns": 2,
           "fields": [
-            { "id": "puntera",       "label": "Puntera",                     "unit": "m",   "default": 1.5,  "min": 0.0,  "step": 0.1 },
-            { "id": "talon",         "label": "Talón",                       "unit": "m",   "default": 3.0,  "min": 0.0,  "step": 0.1 },
-            { "id": "canto_min_zap", "label": "Canto mínimo zapata, Cmin",  "unit": "m",   "default": 1.0,  "min": 0.3,  "step": 0.05 },
-            { "id": "canto_max_zap", "label": "Canto máximo zapata, Cmax",  "unit": "m",   "default": 1.5,  "min": 0.3,  "step": 0.05 },
-            { "id": "long_zapata",   "label": "Longitud zapata",             "unit": "m",   "default": 1.0,  "min": 0.1,  "step": 0.5 }
+            { "id": "puntera",       "label": "Puntera",                     "unit": "m",   "default": 1.5,  "min": 0.0,  "step": 0.1, "help_text": "Longitud de la puntera de la zapata, medida desde el borde del muro" },
+            { "id": "talon",         "label": "Talón",                       "unit": "m",   "default": 3.0,  "min": 0.0,  "step": 0.1, "help_text": "Longitud del talón de la zapata, medida desde el borde del muro" },
+            { "id": "canto_min_zap", "label": "Canto mínimo zapata, Cmin",  "unit": "m",   "default": 1.0,  "min": 0.3,  "step": 0.05, "help_text": "Canto mínimo de la zapata" },
+            { "id": "canto_max_zap", "label": "Canto máximo zapata, Cmax",  "unit": "m",   "default": 1.5,  "min": 0.3,  "step": 0.05, "help_text": "Canto máximo de la zapata" },
+            { "id": "long_zapata",   "label": "Longitud zapata",             "unit": "m",   "default": 1.0,  "min": 0.1,  "step": 0.5, "help_text": "Longitud de la zapata" }
           ]
         }
       ]
@@ -1015,21 +1026,21 @@ def calculate_element(payload: dict) -> SolverResponse:
           "name": "1.2 Características del Relleno",
           "layout_columns": 2,
           "fields": [
-            { "id": "gamma_relleno", "label": "Peso específico relleno, γ",  "unit": "kN/m³", "default": 18.0, "min": 10.0, "max": 24.0, "step": 0.5 },
-            { "id": "phi_relleno",   "label": "Ángulo rozamiento interno, Ø","unit": "°",     "default": 27.0, "min": 10.0, "max": 45.0, "step": 1.0 },
-            { "id": "delta_coulomb", "label": "Rozamiento muro-tierra, δ",   "unit": "°",     "default": 15.0, "min": 0.0,  "max": 30.0, "step": 1.0 },
-            { "id": "beta_relleno",  "label": "Inclinación superficie, β",   "unit": "°",     "default": 0.0,  "min": 0.0,  "max": 30.0, "step": 1.0 },
-            { "id": "sc",            "label": "Sobrecarga superficial, sc",  "unit": "kN/m²", "default": 10.0, "min": 0.0,  "step": 1.0 }
+            { "id": "gamma_relleno", "label": "Peso específico relleno, γ",  "unit": "kN/m³", "default": 18.0, "min": 10.0, "max": 24.0, "step": 0.5, "help_text": "Peso específico del relleno" },   
+            { "id": "phi_relleno",   "label": "Ángulo rozamiento interno, Ø","unit": "°",     "default": 27.0, "min": 10.0, "max": 45.0, "step": 1.0, "help_text": "Ángulo de rozamiento interno del relleno"},
+            { "id": "delta_coulomb", "label": "Rozamiento muro-tierra, δ",   "unit": "°",     "default": 15.0, "min": 0.0,  "max": 30.0, "step": 1.0, "help_text": "Ángulo de rozamiento muro-tierra" },
+            { "id": "beta_relleno",  "label": "Inclinación superficie, β",   "unit": "°",     "default": 0.0,  "min": 0.0,  "max": 30.0, "step": 1.0, "help_text": "Inclinación de la superficie del relleno" },
+            { "id": "sc",            "label": "Sobrecarga superficial, sc",  "unit": "kN/m²", "default": 10.0, "min": 0.0,  "step": 1.0, "help_text": "Sobrecarga superficial del relleno" }
           ]
         },
         {
           "name": "1.3 Características del Terreno de Apoyo",
           "layout_columns": 2,
           "fields": [
-            { "id": "sigma_adm_est", "label": "Tensión admisible estática",  "unit": "kg/cm²","default": 2.0,  "min": 0.5,  "step": 0.5 },
-            { "id": "sigma_adm_sis", "label": "Tensión admisible sísmica",   "unit": "kg/cm²","default": 3.0,  "min": 0.5,  "step": 0.5 },
-            { "id": "pct_comprimido","label": "% mínimo zapata comprimida",  "unit": "%",     "default": 75.0, "min": 0.0,  "max": 100.0,"step": 5.0 },
-            { "id": "phi_terreno",   "label": "Ángulo rozamiento terreno, Ø","unit": "°",     "default": 30.0, "min": 10.0, "max": 45.0, "step": 1.0 }
+            { "id": "sigma_adm_est", "label": "Tensión admisible estática",  "unit": "kg/cm²","default": 2.0,  "min": 0.5,  "step": 0.5, "help_text": "Tensión admisible estática del terreno" },
+            { "id": "sigma_adm_sis", "label": "Tensión admisible sísmica",   "unit": "kg/cm²","default": 3.0,  "min": 0.5,  "step": 0.5, "help_text": "Tensión admisible sísmica del terreno"},
+            { "id": "pct_comprimido","label": "% mínimo zapata comprimida",  "unit": "%",     "default": 75.0, "min": 0.0,  "max": 100.0,"step": 5.0, "help_text": "Porcentaje mínimo de la zapata que debe estar comprimida" },
+            { "id": "phi_terreno",   "label": "Ángulo rozamiento terreno, Ø","unit": "°",     "default": 30.0, "min": 10.0, "max": 45.0, "step": 1.0, "help_text": "Ángulo de rozamiento del terreno" }
           ]
         }
       ]
@@ -1043,39 +1054,39 @@ def calculate_element(payload: dict) -> SolverResponse:
           "name": "1.4 Acciones en Cabeza del Muro",
           "layout_columns": 2,
           "fields": [
-            { "id": "carga_h",   "label": "Carga horizontal",  "unit": "kN/m", "default": 0.0, "reference": "Positiva si desestabiliza" },
-            { "id": "carga_v",   "label": "Carga vertical",    "unit": "kN/m", "default": 0.0, "reference": "Positiva si comprime" },
-            { "id": "momento",   "label": "Momento",           "unit": "mkN/m","default": 0.0, "reference": "Positivo si desestabiliza" }
+            { "id": "carga_h",   "label": "Carga horizontal",  "unit": "kN/m", "default": 0.0, "reference": "Positiva si desestabiliza", "help_text": "Carga horizontal aplicada en la cabeza del muro" },
+            { "id": "carga_v",   "label": "Carga vertical",    "unit": "kN/m", "default": 0.0, "reference": "Positiva si comprime", "help_text": "Carga vertical aplicada en la cabeza del muro" },
+            { "id": "momento",   "label": "Momento",           "unit": "mkN/m","default": 0.0, "reference": "Positivo si desestabiliza", "help_text": "Momento aplicado en la cabeza del muro" }
           ]
         },
         {
           "name": "1.5 Acciones Sísmicas",
           "layout_columns": 2,
           "fields": [
-            { "id": "considerar_sismo",  "label": "Considerar sismo",             "type": "toggle", "default": false },
-            { "id": "inercia_muro",      "label": "Considerar inercia del muro",  "type": "toggle", "default": true },
-            { "id": "inercia_zapata",    "label": "Considerar inercia de zapata", "type": "toggle", "default": false },
-            { "id": "ac_horizontal",     "label": "Aceleración horizontal, αh",   "unit": "g",  "default": 0.7,  "min": 0.0, "max": 2.0, "step": 0.05 },
-            { "id": "ac_vertical",       "label": "Aceleración vertical, αv",     "unit": "g",  "default": 0.35, "min": 0.0, "max": 2.0, "step": 0.05 }
+            { "id": "considerar_sismo",  "label": "Considerar sismo",             "type": "toggle", "default": false, "help_text": "Si se considera el sismo en el cálculo" },
+            { "id": "inercia_muro",      "label": "Considerar inercia del muro",  "type": "toggle", "default": true, "help_text": "Si se considera la inercia del muro en el cálculo" },
+            { "id": "inercia_zapata",    "label": "Considerar inercia de zapata", "type": "toggle", "default": false, "help_text": "Si se considera la inercia de la zapata en el cálculo" },
+            { "id": "ac_horizontal",     "label": "Aceleración horizontal, αh",   "unit": "g",  "default": 0.7,  "min": 0.0, "max": 2.0, "step": 0.05, "help_text": "Aceleración horizontal aplicada en el cálculo" },
+            { "id": "ac_vertical",       "label": "Aceleración vertical, αv",     "unit": "g",  "default": 0.35, "min": 0.0, "max": 2.0, "step": 0.05, "help_text": "Aceleración vertical aplicada en el cálculo" }
           ]
         },
         {
           "name": "1.6 Coeficientes de Mayoración",
           "layout_columns": 2,
           "fields": [
-            { "id": "gamma_carga_est", "label": "Coef. mayoración estático, γ",  "unit": "—", "default": 1.5, "min": 1.0, "step": 0.05 },
-            { "id": "gamma_carga_sis", "label": "Coef. mayoración sísmico, γ",   "unit": "—", "default": 1.0, "min": 1.0, "step": 0.05 },
-            { "id": "psi_sc",          "label": "Coef. sobrecarga combinación",  "unit": "—", "default": 0.2, "min": 0.0, "max": 1.0, "step": 0.05 }
+            { "id": "gamma_carga_est", "label": "Coef. mayoración estático, γ",  "unit": "—", "default": 1.5, "min": 1.0, "step": 0.05, "help_text": "Coeficiente de mayoración estático" },
+            { "id": "gamma_carga_sis", "label": "Coef. mayoración sísmico, γ",   "unit": "—", "default": 1.0, "min": 1.0, "step": 0.05, "help_text": "Coeficiente de mayoración sísmico" },
+            { "id": "psi_sc",          "label": "Coef. sobrecarga combinación",  "unit": "—", "default": 0.2, "min": 0.0, "max": 1.0, "step": 0.05, "help_text": "Coeficiente de sobrecarga combinación" }
           ]
         },
         {
           "name": "1.7 Coeficientes de Seguridad",
           "layout_columns": 2,
           "fields": [
-            { "id": "fs_desliz_est", "label": "FS deslizamiento estático",  "unit": "—", "default": 1.5,   "min": 1.0, "step": 0.05, "reference": "EC7 §6.5.3" },
-            { "id": "fs_desliz_sis", "label": "FS deslizamiento sísmico",   "unit": "—", "default": 1.1,   "min": 1.0, "step": 0.05 },
-            { "id": "fs_vuelco_est", "label": "FS vuelco estático",         "unit": "—", "default": 1.8,   "min": 1.0, "step": 0.05, "reference": "EC7 §6.5.4" },
-            { "id": "fs_vuelco_sis", "label": "FS vuelco sísmico",          "unit": "—", "default": 1.265, "min": 1.0, "step": 0.05 }
+            { "id": "fs_desliz_est", "label": "FS deslizamiento estático",  "unit": "—", "default": 1.5,   "min": 1.0, "step": 0.05, "reference": "EC7 §6.5.3", "help_text": "Factor de seguridad al deslizamiento estático" },
+            { "id": "fs_desliz_sis", "label": "FS deslizamiento sísmico",   "unit": "—", "default": 1.1,   "min": 1.0, "step": 0.05, "help_text": "Factor de seguridad al deslizamiento sísmico" },
+            { "id": "fs_vuelco_est", "label": "FS vuelco estático",         "unit": "—", "default": 1.8,   "min": 1.0, "step": 0.05, "reference": "EC7 §6.5.4", "help_text": "Factor de seguridad al vuelco estático" },
+            { "id": "fs_vuelco_sis", "label": "FS vuelco sísmico",          "unit": "—", "default": 1.265, "min": 1.0, "step": 0.05, "help_text": "Factor de seguridad al vuelco sísmico" }
           ]
         }
       ]
@@ -1121,7 +1132,7 @@ def calculate_element(payload: dict) -> SolverResponse:
           "layout_columns": 2,
           "fields": [
             { "id": "coulomb_d", "label": "Ángulo rozamiento δ (Coulomb)", "unit": "°", "default": 15.0, "min": 0.0, "max": 30.0, "step": 1.0 },
-            { "id": "coulomb_a", "label": "Inclinación trasdós α (Coulomb)","unit": "°", "default": 0.0,  "min": 0.0, "max": 45.0, "step": 1.0 }
+            { "id": "coulomb_a", "label": "Inclinación trasdós α (Coulomb)","unit": "°", "default": 0.0,  "min": 0.0, "max": 45.0, "step": 1.0, "help_text": "Inclinación del trasdós del muro" }
           ]
         }
       ]
@@ -1219,7 +1230,7 @@ Usa config.has_tabs (bool declarado en FormConfig) en lugar de .get("tabs")
 para evitar el VarAttributeError de Reflex.
 """
 import reflex as rx
-from structural_app.core.base_state import BaseState
+from structural_app.core.base_state import BaseState, FormField
 from structural_app.shared.components.data_table import custom_data_table
 
 
@@ -1294,12 +1305,24 @@ def _dots_spacer() -> rx.Component:
 
 
 def _field_row_number(field: rx.Var, state_ptr) -> rx.Component:
-    # f.id es un Var de Reflex, usamos .to(str) para la clave del diccionario
     val = state_ptr.form_data[field.id.to(str)] 
     
     return rx.hstack(
-        rx.text(field.symbol, **SYMBOL_STYLE), # Acceso con punto
-        rx.text(field.label, **LABEL_STYLE),
+        rx.text(field.symbol, **SYMBOL_STYLE),
+        rx.hstack(
+            rx.text(field.label, **LABEL_STYLE),
+            # Lógica para mostrar el botón de ayuda
+            rx.cond(
+                field.help_text != "",
+                rx.tooltip(
+                    rx.icon(tag="info", size=14, color="var(--blue-9)"),
+                    content=field.help_text,
+                )
+            ),
+            spacing="1",
+            align="center",
+            flex="1",
+        ),
         _dots_spacer(),
         rx.input(
             value=val.to(str), 
@@ -1477,23 +1500,18 @@ def _render_tab_content(tab: rx.Var, state_ptr) -> rx.Component:
 def render_form_header(config: rx.Var) -> rx.Component:
     return rx.vstack(
         rx.hstack(
-            rx.heading(config.title, size="6", color="rgb(0,50,100)"), # <-- CORRECCIÓN
+            rx.heading(config.title, size="6", color="rgb(0,50,100)"),
             rx.cond(
-                config.extended_info, # <-- CORRECCIÓN
+                (config.extended_info != "") | (config.references.length() > 0),
                 rx.icon(
-                    "info", size=18, color="var(--blue-9)",
-                    cursor="pointer", on_click=BaseState.toggle_theory,
+                    "book-open",
+                    size=20,
+                    color="var(--blue-9)",
+                    cursor="pointer",
+                    on_click=BaseState.toggle_theory,
                     style={"_hover": {"opacity": 0.7}},
                 ),
-                rx.cond(
-                    config.references.length() > 0, # <-- CORRECCIÓN
-                    rx.icon(
-                        "info", size=18, color="var(--blue-9)",
-                        cursor="pointer", on_click=BaseState.toggle_theory,
-                        style={"_hover": {"opacity": 0.7}},
-                    ),
-                    rx.box(),
-                ),
+                rx.fragment(), # <--- CAMBIA rx.none() POR rx.fragment()
             ),
             align="center",
             spacing="3",
@@ -1575,9 +1593,26 @@ def render_dynamic_form(config: rx.Var, state_ptr) -> rx.Component:
 # Alias de compatibilidad (por si otros módulos los importan)
 # ============================================================================
 
-def render_field(field: rx.Var, state_ptr):
-    return _field_row(field, state_ptr)
-
+def render_field(field: FormField):
+    return rx.vstack(
+        rx.hstack(
+            rx.text(field.label, font_weight="bold"),
+            # Si hay texto de ayuda, mostramos un icono con tooltip
+            rx.cond(
+                field.help_text != "",
+                rx.tooltip(
+                    rx.icon(tag="info", size=15, color="gray"),
+                    content=field.help_text,
+                )
+            ),
+            align_items="center",
+            spacing="2",
+        ),
+        rx.input(
+            # ... resto de la configuración del input
+        ),
+        width="100%",
+    )
 def render_group(group: rx.Var, state_ptr):
     return _render_group(group, state_ptr)
 
@@ -1650,7 +1685,8 @@ def generic_form_page():
             direction={"sm": "column", "lg": "row"},
             width="100%",
             spacing="2",
-        )
+        ),
+        state_class=BaseState
     )
 ```
 
@@ -1661,6 +1697,8 @@ from structural_app.core.base_state import BaseState
 from structural_app.core.form_registry import FORM_REGISTRY, discover_forms
 from structural_app.shared.components.search_bar import top_search_bar
 from structural_app.shared.components.theory_sidebar import theory_sidebar
+from .theory_sidebar import theory_sidebar
+
 
 def navbar(state_class: rx.State = None):
     # Usamos BaseState por defecto si no viene uno específico (para el Portal)
@@ -1855,8 +1893,13 @@ def navbar(state_class: rx.State = None):
 
 
 
-def main_layout(content: rx.Component, state_class: rx.State = None):
+def main_layout(content: rx.Component, state_class: rx.State = None, child: rx.Component = None):
     return rx.box(
+        theory_sidebar(), # El pop-up vive aquí, invisible hasta que show_theory_popup sea True
+        rx.container(
+            child,
+            padding_top="2em",
+        ),
         navbar(state_class), 
         rx.center(
             rx.container(
@@ -2396,49 +2439,87 @@ def theory_popover(title: str, content: str, reference: str = ""):
 
 ### Archivo: ./structural_app\shared\components\theory_sidebar.py
 ```python
-# En structural_app/shared/components/theory_sidebar.py
 import reflex as rx
 from structural_app.core.base_state import BaseState
 
-def theory_sidebar(config: rx.Var):
-    return rx.box(
-        rx.vstack(
-            rx.hstack(
-                rx.heading("Información Técnica", size="5"),
-                rx.spacer(),
-                rx.icon("x", cursor="pointer", on_click=BaseState.toggle_theory),
-                width="100%",
-                align="center",
-            ),
-            rx.text(config["extended_info"], size="2"),
-            rx.divider(),
-            rx.text("Referencias y Libros:", weight="bold", size="2"),
-            rx.foreach(
-                config["references"],
-                lambda ref: rx.link(
-                    rx.hstack(rx.icon("book-text", size=16), rx.text(ref["title"], size="2")),
-                    href=ref["url"],
-                    is_external=True,
-                )
-            ),
-            spacing="4",
-            padding="6",
+def theory_sidebar():
+    return rx.drawer.root(
+        rx.drawer.overlay(background_color="rgba(0, 0, 0, 0.3)"),
+        rx.drawer.portal(
+            rx.drawer.content(
+                rx.vstack(
+                    # Cabecera
+                    rx.hstack(
+                        rx.heading("Información Técnica", size="5"),
+                        rx.drawer.close(
+                            rx.icon_button("x", variant="ghost", on_click=BaseState.toggle_theory)
+                        ),
+                        justify="between",
+                        width="100%",
+                    ),
+                    
+                    # 1. Descripción corta
+                    rx.text(
+                        BaseState.active_form_config.description, 
+                        weight="bold", 
+                        size="3"
+                    ),
+                    
+                    rx.divider(),
+
+                    # 2. Información Extendida (Markdown)
+                    rx.vstack(
+                        rx.heading("Detalles del Cálculo", size="3"),
+                        rx.markdown(BaseState.current_theory_content),
+                        align_items="start",
+                        spacing="2",
+                    ),
+
+                    rx.divider(),
+
+                    # 3. Referencias Normativas
+                    rx.vstack(
+                        rx.heading("Referencias y Normativa", size="3"),
+                        rx.foreach(
+                            BaseState.active_form_config.references,
+                            lambda ref: rx.link(
+                                rx.hstack(
+                                    rx.icon("book-open", size=16),
+                                    rx.text(ref.title, size="2"),
+                                    spacing="2",
+                                    padding_y="1",
+                                ),
+                                href=ref.url,
+                                is_external=True,
+                                color_scheme="blue",
+                            )
+                        ),
+                        align_items="start",
+                        spacing="2",
+                    ),
+
+                    padding="2em",
+                    background_color="white",
+                    height="100%",
+                    spacing="4",
+                    overflow_y="auto", # Permite scroll si hay muchas referencias
+                ),
+                top="0",
+                left="0",
+                width="400px",
+                height="100vh",
+            )
         ),
-        position="fixed",
-        left=rx.cond(BaseState.show_theory_sidebar, "0", "-400px"),
-        top="0",
-        width="350px",
-        height="100vh",
-        background_color=rx.color("gray", 2),
-        box_shadow="5px 0px 15px rgba(0,0,0,0.1)",
-        z_index="1000",
-        transition="left 0.3s ease-in-out",
+        direction="left",
+        open=BaseState.show_theory_popup,
+        on_open_change=BaseState.set_show_theory_popup,
     )
 ```
 
 ### Archivo: ./structural_app\shared\components\toolbar.py
 ```python
 import reflex as rx
+from structural_app.core.base_state import BaseState
 
 def form_toolbar(state_class: rx.State, upload_id: str = "upload_json"):
     """Barra de acciones universal con diálogo de guardado."""
@@ -2468,7 +2549,9 @@ def form_toolbar(state_class: rx.State, upload_id: str = "upload_json"):
                     ),
                     spacing="1", width="100%",
                 ),
-                spacing="4", margin_y="4", width="100%",
+                spacing="1",
+                margin_y="2",
+                width="100%",
             ),
             
             rx.flex(
@@ -2539,14 +2622,21 @@ def form_toolbar(state_class: rx.State, upload_id: str = "upload_json"):
         ),
         
         rx.spacer(),
+        
+        # Botón Reset
         rx.button(
             rx.icon("refresh-cw"), 
             on_click=state_class.reset_form,
             variant="ghost", size="2", color_scheme="red", cursor="pointer"
         ),
+        
+        # Estilos de posicionamiento y márgenes
         width="100%",
-        padding_y="2",
+        padding_top="0px",      # Pegado al techo
+        padding_bottom="4px",   # Pequeño espacio sobre la línea divisoria
+        margin_top="-4px",      # Compensa posibles espacios del contenedor padre
         border_bottom="1px solid #f3f4f6",
+        align="center",
     )
 ```
 

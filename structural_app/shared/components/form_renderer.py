@@ -6,7 +6,7 @@ Usa config.has_tabs (bool declarado en FormConfig) en lugar de .get("tabs")
 para evitar el VarAttributeError de Reflex.
 """
 import reflex as rx
-from structural_app.core.base_state import BaseState
+from structural_app.core.base_state import BaseState, FormField
 from structural_app.shared.components.data_table import custom_data_table
 
 
@@ -81,12 +81,24 @@ def _dots_spacer() -> rx.Component:
 
 
 def _field_row_number(field: rx.Var, state_ptr) -> rx.Component:
-    # f.id es un Var de Reflex, usamos .to(str) para la clave del diccionario
     val = state_ptr.form_data[field.id.to(str)] 
     
     return rx.hstack(
-        rx.text(field.symbol, **SYMBOL_STYLE), # Acceso con punto
-        rx.text(field.label, **LABEL_STYLE),
+        rx.text(field.symbol, **SYMBOL_STYLE),
+        rx.hstack(
+            rx.text(field.label, **LABEL_STYLE),
+            # Lógica para mostrar el botón de ayuda
+            rx.cond(
+                field.help_text != "",
+                rx.tooltip(
+                    rx.icon(tag="info", size=14, color="var(--blue-9)"),
+                    content=field.help_text,
+                )
+            ),
+            spacing="1",
+            align="center",
+            flex="1",
+        ),
         _dots_spacer(),
         rx.input(
             value=val.to(str), 
@@ -264,23 +276,18 @@ def _render_tab_content(tab: rx.Var, state_ptr) -> rx.Component:
 def render_form_header(config: rx.Var) -> rx.Component:
     return rx.vstack(
         rx.hstack(
-            rx.heading(config.title, size="6", color="rgb(0,50,100)"), # <-- CORRECCIÓN
+            rx.heading(config.title, size="6", color="rgb(0,50,100)"),
             rx.cond(
-                config.extended_info, # <-- CORRECCIÓN
+                (config.extended_info != "") | (config.references.length() > 0),
                 rx.icon(
-                    "info", size=18, color="var(--blue-9)",
-                    cursor="pointer", on_click=BaseState.toggle_theory,
+                    "book-open",
+                    size=20,
+                    color="var(--blue-9)",
+                    cursor="pointer",
+                    on_click=BaseState.toggle_theory,
                     style={"_hover": {"opacity": 0.7}},
                 ),
-                rx.cond(
-                    config.references.length() > 0, # <-- CORRECCIÓN
-                    rx.icon(
-                        "info", size=18, color="var(--blue-9)",
-                        cursor="pointer", on_click=BaseState.toggle_theory,
-                        style={"_hover": {"opacity": 0.7}},
-                    ),
-                    rx.box(),
-                ),
+                rx.fragment(), # <--- CAMBIA rx.none() POR rx.fragment()
             ),
             align="center",
             spacing="3",
@@ -362,9 +369,26 @@ def render_dynamic_form(config: rx.Var, state_ptr) -> rx.Component:
 # Alias de compatibilidad (por si otros módulos los importan)
 # ============================================================================
 
-def render_field(field: rx.Var, state_ptr):
-    return _field_row(field, state_ptr)
-
+def render_field(field: FormField):
+    return rx.vstack(
+        rx.hstack(
+            rx.text(field.label, font_weight="bold"),
+            # Si hay texto de ayuda, mostramos un icono con tooltip
+            rx.cond(
+                field.help_text != "",
+                rx.tooltip(
+                    rx.icon(tag="info", size=15, color="gray"),
+                    content=field.help_text,
+                )
+            ),
+            align_items="center",
+            spacing="2",
+        ),
+        rx.input(
+            # ... resto de la configuración del input
+        ),
+        width="100%",
+    )
 def render_group(group: rx.Var, state_ptr):
     return _render_group(group, state_ptr)
 

@@ -45,6 +45,31 @@ class MuroInput(BaseModel):
     hormigon: str = "HA-25"
     acero:    str = "B 500 S"
 
+def validate_geo(data: dict) -> dict:
+        """Validación parcial de la geometría del muro."""
+        h_muro = float(data.get("h_muro", 0) or 0)
+        e_coronacion = float(data.get("e_coronacion", 0) or 0)
+        puntera = float(data.get("puntera", 0) or 0)
+        talon = float(data.get("talon", 0) or 0)
+
+        ancho_total = puntera + e_coronacion + talon
+
+        return {
+            "geo_status": "OK" if h_muro > 0 and e_coronacion > 0 and ancho_total > 0 else "ERROR",
+            "b_zapata": round(ancho_total, 3),
+        }
+
+def calc_earth_coefficients(data: dict) -> dict:
+    """Cálculo parcial de coeficientes de empuje activo y pasivo."""
+    phi = math.radians(float(data.get("phi_relleno", 30) or 30))
+
+    ka = (1 - math.sin(phi)) / (1 + math.sin(phi))
+    kp = 1 / ka if ka != 0 else 0
+
+    return {
+        "ka_val": round(ka, 3),
+        "kp_val": round(kp, 3),
+    }
 
 # ---------------------------------------------------------------------------
 # Función principal
@@ -195,6 +220,7 @@ def calculate_element(payload: dict) -> SolverResponse:
 
         return checks, all(c.status for c in checks)
 
+    
     checks_sc,   ok_sc   = _estabilidad(con_sc=True)
     checks_nosc, ok_nosc = _estabilidad(con_sc=False)
 

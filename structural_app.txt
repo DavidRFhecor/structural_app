@@ -24,6 +24,8 @@
 │   │   ├── data_table.py
 │   │   ├── form_renderer.py
 │   │   ├── generic_page.py
+│   │   ├── generic_page_split_tabs.py
+│   │   ├── generic_page_standard.py
 │   │   ├── layout.py
 │   │   ├── result_cards.py
 │   │   ├── search_bar.py
@@ -129,40 +131,54 @@ from structural_app.shared.infrastructure.pdf_export import PDFExportProvider
 
 
 # ---------------------------------------------------------------------------
-# Modelos auxiliares — FormConfig AMPLIADO con tabs y has_tabs
+# Modelos auxiliares — FormConfig AMPLIADO con tabs, tablas y page_layout
 # ---------------------------------------------------------------------------
 
 class BookReference(BaseModel):
     title: str = ""
     url: str = ""
+
+
 class SearchResult(BaseModel):
     title: str = ""
     description: str = ""
     form_key: str = ""
+
+
 class FormField(BaseModel):
     id: str = ""
-    symbol: str = ""  # Agregado para el renderizador
+    symbol: str = ""
     label: str = ""
     unit: str = ""
     type: str = "number"
     default: Any = 0.0
     options: List[Dict[str, Any]] = []
     help_text: str = ""
+    action_name: str = ""
+
+
 class FormElement(BaseModel):
     """Representa tanto un grupo de campos como una tabla."""
     type: str = "group"
     name: str = ""
     fields: List[FormField] = []
+
     # Campos específicos para data_table
     id: str = ""
     title: str = ""
     columns: List[Dict[str, Any]] = []
     default_rows: List[List[Any]] = []
 
+
 class FormTab(BaseModel):
     id: str = ""
     label: str = ""
-    groups: List[FormElement] = [] # Ahora Reflex sabe qué hay dentro
+    groups: List[FormElement] = []
+
+class PageLayoutConfig(BaseModel):
+    type: str = "standard"
+    left_default_tab: str = ""
+    right_default_tab: str = ""
 
 class FormConfig(BaseModel):
     form_key: str = ""
@@ -170,12 +186,15 @@ class FormConfig(BaseModel):
     description: str = ""
     extended_info: Optional[str] = None
     references: List[BookReference] = []
-    groups: List[FormElement] = [] # Consistencia con tabs
+    groups: List[FormElement] = []
     tabs: List[FormTab] = []
     has_tabs: bool = False
-    features: Dict[str, bool] = {"svg": False, "viewer_3d": False, "sketch": False}
-
-
+    features: Dict[str, bool] = {
+        "svg": False,
+        "viewer_3d": False,
+        "sketch": False,
+    }
+    page_layout: PageLayoutConfig = PageLayoutConfig()
 # ---------------------------------------------------------------------------
 # Estado Base
 # ---------------------------------------------------------------------------
@@ -230,18 +249,29 @@ class BaseState(rx.State):
     @rx.event
     async def set_current_form(self, key: str):
         self.current_form_key = ""
-        self.results = SolverResponse(is_ok=False, checks=[], summary="Cargando...", plot_data=None)
+        self.results = SolverResponse(
+            is_ok=False,
+            checks=[],
+            summary="Cargando...",
+            plot_data=None,
+        )
+        self.form_data = {}
         self.form_data = {}
         self.last_calculation_hash = ""
         yield
 
         self.current_form_key = key
         config = FORM_REGISTRY.get(key, {})
+
         new_data = {}
 
         # Determinar fuente de grupos: tabs o legacy
         if "tabs" in config:
-            sources = [g for tab in config["tabs"] for g in tab.get("groups", [])]
+            sources = [
+                g
+                for tab in config["tabs"]
+                for g in tab.get("groups", [])
+            ]
         else:
             sources = config.get("groups", [])
 
@@ -250,15 +280,17 @@ class BaseState(rx.State):
 
             if elem_type == "data_table":
                 table_id = element.get("id") or element.get("name")
-                if not table_id:
-                    continue
-                new_data[table_id] = element.get("default_rows", [])
+                if table_id:
+                    # Asegúrate de que siempre haya una lista de listas inicial
+                    # Si config.json no tiene default_rows, crea una matriz 5x3 vacía
+                    new_data[table_id] = element.get("default_rows", [["" for _ in range(3)] for _ in range(5)])
 
             else:
                 for f in element.get("fields", []):
                     field_id = f.get("id") or f.get("name")
                     if not field_id:
                         continue
+
                     field_type = f.get("type", "number")
 
                     if field_type in ("number", ""):
@@ -274,12 +306,15 @@ class BaseState(rx.State):
                     elif field_type == "toggle":
                         new_data[field_id] = bool(f.get("default", False))
 
-                    elif field_type == "derived":
-                        pass  # calculado por el adaptador, no se inicializa
+                    elif field_type in ("derived", "calculation_trigger"):
+                        pass
+
+                    elif field_type == "info_label":
+                        new_data[field_id] = ""
 
         self.form_data = new_data
         yield
-
+        
     @rx.event
     def update_table_cell(self, table_id: str, pos: tuple[int, int], value: str):
         row, col = pos
@@ -318,8 +353,12 @@ class BaseState(rx.State):
         self.last_calculation_hash = current_hash
         payload = self.form_data.copy()
         payload["_features"] = self.active_form_config.features
-        self.results = SolverDispatcher.dispatch_calculation(self.current_form_key, payload)
+        self.results = SolverDispatcher.dispatch_calculation(
+            self.current_form_key,
+            payload,
+        )
         self.is_calculating = False
+        yield
 
     # --- Exportaciones ---
     @rx.event
@@ -480,7 +519,26 @@ class BaseState(rx.State):
         self.last_calculation_hash = ""
         yield
 
+    @rx.event
+    def run_partial_calculation(self, action_name: str):
+        import structural_app.forms.muro.adapter as adapter
+        
+        if hasattr(adapter, action_name):
+            func = getattr(adapter, action_name)
+            results = func(self.form_data)
+            
+            # Actualizamos y re-asignamos para asegurar la reactividad
+            new_data = self.form_data.copy()
+            new_data.update(results)
+            self.form_data = new_data 
+        else:
+            print(f"Error: {action_name} no existe en adapter.py")
+
     def reset_form(self): return rx.call_script("window.location.reload();")
+
+    def set_field_value(self, field_id: str, value: str):
+        self.form_data[field_id] = value
+
 ```
 
 ### Archivo: ./structural_app\core\form_registry.py
@@ -745,6 +803,31 @@ class MuroInput(BaseModel):
     hormigon: str = "HA-25"
     acero:    str = "B 500 S"
 
+def validate_geo(data: dict) -> dict:
+        """Validación parcial de la geometría del muro."""
+        h_muro = float(data.get("h_muro", 0) or 0)
+        e_coronacion = float(data.get("e_coronacion", 0) or 0)
+        puntera = float(data.get("puntera", 0) or 0)
+        talon = float(data.get("talon", 0) or 0)
+
+        ancho_total = puntera + e_coronacion + talon
+
+        return {
+            "geo_status": "OK" if h_muro > 0 and e_coronacion > 0 and ancho_total > 0 else "ERROR",
+            "b_zapata": round(ancho_total, 3),
+        }
+
+def calc_earth_coefficients(data: dict) -> dict:
+    """Cálculo parcial de coeficientes de empuje activo y pasivo."""
+    phi = math.radians(float(data.get("phi_relleno", 30) or 30))
+
+    ka = (1 - math.sin(phi)) / (1 + math.sin(phi))
+    kp = 1 / ka if ka != 0 else 0
+
+    return {
+        "ka_val": round(ka, 3),
+        "kp_val": round(kp, 3),
+    }
 
 # ---------------------------------------------------------------------------
 # Función principal
@@ -895,6 +978,7 @@ def calculate_element(payload: dict) -> SolverResponse:
 
         return checks, all(c.status for c in checks)
 
+    
     checks_sc,   ok_sc   = _estabilidad(con_sc=True)
     checks_nosc, ok_nosc = _estabilidad(con_sc=False)
 
@@ -980,16 +1064,28 @@ def calculate_element(payload: dict) -> SolverResponse:
   "description": "Cálculo de estabilidad global y resistencia de la sección del muro.",
   "extended_info": "Cálculo según EHE-08 / EC2. Estabilidad por Coulomb con opción sísmica (Mononobe-Okabe). Comprobación de deslizamiento, vuelco y tensiones en terreno.",
   "references": [
-    { "title": "EHE-08: Instrucción de Hormigón Estructural", "url": "https://www.mitma.gob.es" },
-    { "title": "Eurocódigo 7: Proyecto Geotécnico", "url": "https://www.eurocode2.com" }
-    
+    {
+      "title": "EHE-08: Instrucción de Hormigón Estructural",
+      "url": "https://www.mitma.gob.es"
+    },
+    {
+      "title": "Eurocódigo 7: Proyecto Geotécnico",
+      "url": "https://www.eurocode2.com"
+    }
   ],
   "category": "Geotecnia / Estructuras",
   "norm_version": "ehe08_ec7",
-  "features": { "svg": true, "viewer_3d": false, "sketch": true },
-
+  "features": {
+    "svg": true,
+    "viewer_3d": false,
+    "sketch": true
+  },
+  "page_layout": {
+  "type": "split_tabs",
+  "left_default_tab": "tab_geometria",
+  "right_default_tab": "tab_acciones"
+},
   "tabs": [
-
     {
       "id": "tab_geometria",
       "label": "1. Geometría",
@@ -998,26 +1094,104 @@ def calculate_element(payload: dict) -> SolverResponse:
           "name": "1.1 Geometría del Muro",
           "layout_columns": 2,
           "fields": [
-            { "id": "h_muro",        "label": "Altura sobre zapata, H",     "unit": "m",   "default": 6.5,  "min": 0.5,  "max": 30.0, "step": 0.1},
-            { "id": "e_coronacion",  "label": "Ancho en coronación, e",      "unit": "m",   "default": 0.5,  "min": 0.2,  "max": 2.0,  "step": 0.05, "help_text": "Ancho de la coronación del muro" },
-            { "id": "incl_trasdos",  "label": "Inclinación trasdós (1H/xV)", "unit": "—",   "default": 100000.0, "min": 1.0, "step": 1.0},
-            { "id": "long_alzado",   "label": "Longitud alzado",             "unit": "m",   "default": 1.0,  "min": 0.1,  "step": 0.5, "help_text": "Longitud del alzado del muro" }
+            {
+              "id": "h_muro",
+              "label": "Altura sobre zapata, H",
+              "unit": "m",
+              "default": 6.5,
+              "min": 0.5,
+              "max": 30.0,
+              "step": 0.1
+            },
+            {
+              "id": "e_coronacion",
+              "label": "Ancho en coronación, e",
+              "unit": "m",
+              "default": 0.5,
+              "min": 0.2,
+              "max": 2.0,
+              "step": 0.05,
+              "help_text": "Ancho de la coronación del muro"
+            },
+            {
+              "id": "incl_trasdos",
+              "label": "Inclinación trasdós (1H/xV)",
+              "unit": "—",
+              "default": 100000.0,
+              "min": 1.0,
+              "step": 1.0
+            },
+            {
+              "id": "long_alzado",
+              "label": "Longitud alzado",
+              "unit": "m",
+              "default": 1.0,
+              "min": 0.1,
+              "step": 0.5,
+              "help_text": "Longitud del alzado del muro"
+            },
+            {
+              "id": "btn_group_1",
+              "type": "calculation_trigger",
+              "label": "Validar Geometría",
+              "action_name": "validate_geo",
+              "variant": "solid"
+            }
           ]
         },
         {
           "name": "1.1 Geometría de la Zapata",
           "layout_columns": 2,
           "fields": [
-            { "id": "puntera",       "label": "Puntera",                     "unit": "m",   "default": 1.5,  "min": 0.0,  "step": 0.1, "help_text": "Longitud de la puntera de la zapata, medida desde el borde del muro" },
-            { "id": "talon",         "label": "Talón",                       "unit": "m",   "default": 3.0,  "min": 0.0,  "step": 0.1, "help_text": "Longitud del talón de la zapata, medida desde el borde del muro" },
-            { "id": "canto_min_zap", "label": "Canto mínimo zapata, Cmin",  "unit": "m",   "default": 1.0,  "min": 0.3,  "step": 0.05, "help_text": "Canto mínimo de la zapata" },
-            { "id": "canto_max_zap", "label": "Canto máximo zapata, Cmax",  "unit": "m",   "default": 1.5,  "min": 0.3,  "step": 0.05, "help_text": "Canto máximo de la zapata" },
-            { "id": "long_zapata",   "label": "Longitud zapata",             "unit": "m",   "default": 1.0,  "min": 0.1,  "step": 0.5, "help_text": "Longitud de la zapata" }
+            {
+              "id": "puntera",
+              "label": "Puntera",
+              "unit": "m",
+              "default": 1.5,
+              "min": 0.0,
+              "step": 0.1,
+              "help_text": "Longitud de la puntera de la zapata, medida desde el borde del muro"
+            },
+            {
+              "id": "talon",
+              "label": "Talón",
+              "unit": "m",
+              "default": 3.0,
+              "min": 0.0,
+              "step": 0.1,
+              "help_text": "Longitud del talón de la zapata, medida desde el borde del muro"
+            },
+            {
+              "id": "canto_min_zap",
+              "label": "Canto mínimo zapata, Cmin",
+              "unit": "m",
+              "default": 1.0,
+              "min": 0.3,
+              "step": 0.05,
+              "help_text": "Canto mínimo de la zapata"
+            },
+            {
+              "id": "canto_max_zap",
+              "label": "Canto máximo zapata, Cmax",
+              "unit": "m",
+              "default": 1.5,
+              "min": 0.3,
+              "step": 0.05,
+              "help_text": "Canto máximo de la zapata"
+            },
+            {
+              "id": "long_zapata",
+              "label": "Longitud zapata",
+              "unit": "m",
+              "default": 1.0,
+              "min": 0.1,
+              "step": 0.5,
+              "help_text": "Longitud de la zapata"
+            }
           ]
         }
       ]
     },
-
     {
       "id": "tab_relleno",
       "label": "2. Relleno y Terreno",
@@ -1026,26 +1200,156 @@ def calculate_element(payload: dict) -> SolverResponse:
           "name": "1.2 Características del Relleno",
           "layout_columns": 2,
           "fields": [
-            { "id": "gamma_relleno", "label": "Peso específico relleno, γ",  "unit": "kN/m³", "default": 18.0, "min": 10.0, "max": 24.0, "step": 0.5, "help_text": "Peso específico del relleno" },   
-            { "id": "phi_relleno",   "label": "Ángulo rozamiento interno, Ø","unit": "°",     "default": 27.0, "min": 10.0, "max": 45.0, "step": 1.0, "help_text": "Ángulo de rozamiento interno del relleno"},
-            { "id": "delta_coulomb", "label": "Rozamiento muro-tierra, δ",   "unit": "°",     "default": 15.0, "min": 0.0,  "max": 30.0, "step": 1.0, "help_text": "Ángulo de rozamiento muro-tierra" },
-            { "id": "beta_relleno",  "label": "Inclinación superficie, β",   "unit": "°",     "default": 0.0,  "min": 0.0,  "max": 30.0, "step": 1.0, "help_text": "Inclinación de la superficie del relleno" },
-            { "id": "sc",            "label": "Sobrecarga superficial, sc",  "unit": "kN/m²", "default": 10.0, "min": 0.0,  "step": 1.0, "help_text": "Sobrecarga superficial del relleno" }
+            {
+              "id": "gamma_relleno",
+              "label": "Peso específico relleno, γ",
+              "unit": "kN/m³",
+              "default": 18.0,
+              "min": 10.0,
+              "max": 24.0,
+              "step": 0.5,
+              "help_text": "Peso específico del relleno"
+            },
+            {
+              "id": "phi_relleno",
+              "label": "Ángulo rozamiento interno, Ø",
+              "unit": "°",
+              "default": 27.0,
+              "min": 10.0,
+              "max": 45.0,
+              "step": 1.0,
+              "help_text": "Ángulo de rozamiento interno del relleno"
+            },
+            {
+              "id": "delta_coulomb",
+              "label": "Rozamiento muro-tierra, δ",
+              "unit": "°",
+              "default": 15.0,
+              "min": 0.0,
+              "max": 30.0,
+              "step": 1.0,
+              "help_text": "Ángulo de rozamiento muro-tierra"
+            },
+            {
+              "id": "beta_relleno",
+              "label": "Inclinación superficie, β",
+              "unit": "°",
+              "default": 0.0,
+              "min": 0.0,
+              "max": 30.0,
+              "step": 1.0,
+              "help_text": "Inclinación de la superficie del relleno"
+            },
+            {
+              "id": "sc",
+              "label": "Sobrecarga superficial, sc",
+              "unit": "kN/m²",
+              "default": 10.0,
+              "min": 0.0,
+              "step": 1.0,
+              "help_text": "Sobrecarga superficial del relleno"
+            },
+            {
+              "id": "btn_ka",
+              "type": "calculation_trigger",
+              "label": "Calcular Coeficientes",
+              "action_name": "calc_earth_coefficients",
+              "target_fields": [
+                "ka_val",
+                "kp_val"
+              ]
+            },
+            {
+              "id": "ka_val",
+              "type": "info_label",
+              "label": "Ka (Activo)",
+              "unit": "-"
+            },
+            {
+              "id": "kp_val",
+              "type": "info_label",
+              "label": "Kp (Pasivo)",
+              "unit": "-"
+            }
+          ]
+        },
+        {
+          "type": "data_table",
+          "id": "tabla_estratos",
+          "title": "Estratos del terreno",
+          "columns": [
+            {
+              "title": "Espesor",
+              "type": "float"
+            },
+            {
+              "title": "γ",
+              "type": "float"
+            },
+            {
+              "title": "φ",
+              "type": "float"
+            }
+          ],
+          "default_rows": [
+            [
+              1.0,
+              18.0,
+              30.0
+            ],
+            [
+              1.0,
+              19.0,
+              32.0
+            ]
           ]
         },
         {
           "name": "1.3 Características del Terreno de Apoyo",
           "layout_columns": 2,
           "fields": [
-            { "id": "sigma_adm_est", "label": "Tensión admisible estática",  "unit": "kg/cm²","default": 2.0,  "min": 0.5,  "step": 0.5, "help_text": "Tensión admisible estática del terreno" },
-            { "id": "sigma_adm_sis", "label": "Tensión admisible sísmica",   "unit": "kg/cm²","default": 3.0,  "min": 0.5,  "step": 0.5, "help_text": "Tensión admisible sísmica del terreno"},
-            { "id": "pct_comprimido","label": "% mínimo zapata comprimida",  "unit": "%",     "default": 75.0, "min": 0.0,  "max": 100.0,"step": 5.0, "help_text": "Porcentaje mínimo de la zapata que debe estar comprimida" },
-            { "id": "phi_terreno",   "label": "Ángulo rozamiento terreno, Ø","unit": "°",     "default": 30.0, "min": 10.0, "max": 45.0, "step": 1.0, "help_text": "Ángulo de rozamiento del terreno" }
+            {
+              "id": "sigma_adm_est",
+              "label": "Tensión admisible estática",
+              "unit": "kg/cm²",
+              "default": 2.0,
+              "min": 0.5,
+              "step": 0.5,
+              "help_text": "Tensión admisible estática del terreno"
+            },
+            {
+              "id": "sigma_adm_sis",
+              "label": "Tensión admisible sísmica",
+              "unit": "kg/cm²",
+              "default": 3.0,
+              "min": 0.5,
+              "step": 0.5,
+              "help_text": "Tensión admisible sísmica del terreno"
+            },
+            {
+              "id": "pct_comprimido",
+              "label": "% mínimo zapata comprimida",
+              "unit": "%",
+              "default": 75.0,
+              "min": 0.0,
+              "max": 100.0,
+              "step": 5.0,
+              "help_text": "Porcentaje mínimo de la zapata que debe estar comprimida"
+            },
+            {
+              "id": "phi_terreno",
+              "label": "Ángulo rozamiento terreno, Ø",
+              "unit": "°",
+              "default": 30.0,
+              "min": 10.0,
+              "max": 45.0,
+              "step": 1.0,
+              "help_text": "Ángulo de rozamiento del terreno"
+            }
           ]
         }
       ]
     },
-
     {
       "id": "tab_acciones",
       "label": "3. Acciones",
@@ -1054,44 +1358,196 @@ def calculate_element(payload: dict) -> SolverResponse:
           "name": "1.4 Acciones en Cabeza del Muro",
           "layout_columns": 2,
           "fields": [
-            { "id": "carga_h",   "label": "Carga horizontal",  "unit": "kN/m", "default": 0.0, "reference": "Positiva si desestabiliza", "help_text": "Carga horizontal aplicada en la cabeza del muro" },
-            { "id": "carga_v",   "label": "Carga vertical",    "unit": "kN/m", "default": 0.0, "reference": "Positiva si comprime", "help_text": "Carga vertical aplicada en la cabeza del muro" },
-            { "id": "momento",   "label": "Momento",           "unit": "mkN/m","default": 0.0, "reference": "Positivo si desestabiliza", "help_text": "Momento aplicado en la cabeza del muro" }
+            {
+              "id": "carga_h",
+              "label": "Carga horizontal",
+              "unit": "kN/m",
+              "default": 0.0,
+              "reference": "Positiva si desestabiliza",
+              "help_text": "Carga horizontal aplicada en la cabeza del muro"
+            },
+            {
+              "id": "carga_v",
+              "label": "Carga vertical",
+              "unit": "kN/m",
+              "default": 0.0,
+              "reference": "Positiva si comprime",
+              "help_text": "Carga vertical aplicada en la cabeza del muro"
+            },
+            {
+              "id": "momento",
+              "label": "Momento",
+              "unit": "mkN/m",
+              "default": 0.0,
+              "reference": "Positivo si desestabiliza",
+              "help_text": "Momento aplicado en la cabeza del muro"
+            }
+          ]
+        },
+        {
+          "type": "data_table",
+          "id": "tabla_combinaciones",
+          "title": "Combinaciones de acciones",
+          "columns": [
+            {
+              "title": "Caso",
+              "type": "str"
+            },
+            {
+              "title": "γG",
+              "type": "float"
+            },
+            {
+              "title": "γQ",
+              "type": "float"
+            },
+            {
+              "title": "ψ",
+              "type": "float"
+            }
+          ],
+          "default_rows": [
+            [
+              "EST",
+              1.35,
+              1.5,
+              1.0
+            ],
+            [
+              "SIS",
+              1.0,
+              1.0,
+              0.2
+            ]
           ]
         },
         {
           "name": "1.5 Acciones Sísmicas",
           "layout_columns": 2,
           "fields": [
-            { "id": "considerar_sismo",  "label": "Considerar sismo",             "type": "toggle", "default": false, "help_text": "Si se considera el sismo en el cálculo" },
-            { "id": "inercia_muro",      "label": "Considerar inercia del muro",  "type": "toggle", "default": true, "help_text": "Si se considera la inercia del muro en el cálculo" },
-            { "id": "inercia_zapata",    "label": "Considerar inercia de zapata", "type": "toggle", "default": false, "help_text": "Si se considera la inercia de la zapata en el cálculo" },
-            { "id": "ac_horizontal",     "label": "Aceleración horizontal, αh",   "unit": "g",  "default": 0.7,  "min": 0.0, "max": 2.0, "step": 0.05, "help_text": "Aceleración horizontal aplicada en el cálculo" },
-            { "id": "ac_vertical",       "label": "Aceleración vertical, αv",     "unit": "g",  "default": 0.35, "min": 0.0, "max": 2.0, "step": 0.05, "help_text": "Aceleración vertical aplicada en el cálculo" }
+            {
+              "id": "considerar_sismo",
+              "label": "Considerar sismo",
+              "type": "toggle",
+              "default": false,
+              "help_text": "Si se considera el sismo en el cálculo"
+            },
+            {
+              "id": "inercia_muro",
+              "label": "Considerar inercia del muro",
+              "type": "toggle",
+              "default": true,
+              "help_text": "Si se considera la inercia del muro en el cálculo"
+            },
+            {
+              "id": "inercia_zapata",
+              "label": "Considerar inercia de zapata",
+              "type": "toggle",
+              "default": false,
+              "help_text": "Si se considera la inercia de la zapata en el cálculo"
+            },
+            {
+              "id": "ac_horizontal",
+              "label": "Aceleración horizontal, αh",
+              "unit": "g",
+              "default": 0.7,
+              "min": 0.0,
+              "max": 2.0,
+              "step": 0.05,
+              "help_text": "Aceleración horizontal aplicada en el cálculo"
+            },
+            {
+              "id": "ac_vertical",
+              "label": "Aceleración vertical, αv",
+              "unit": "g",
+              "default": 0.35,
+              "min": 0.0,
+              "max": 2.0,
+              "step": 0.05,
+              "help_text": "Aceleración vertical aplicada en el cálculo"
+            }
           ]
         },
         {
           "name": "1.6 Coeficientes de Mayoración",
           "layout_columns": 2,
           "fields": [
-            { "id": "gamma_carga_est", "label": "Coef. mayoración estático, γ",  "unit": "—", "default": 1.5, "min": 1.0, "step": 0.05, "help_text": "Coeficiente de mayoración estático" },
-            { "id": "gamma_carga_sis", "label": "Coef. mayoración sísmico, γ",   "unit": "—", "default": 1.0, "min": 1.0, "step": 0.05, "help_text": "Coeficiente de mayoración sísmico" },
-            { "id": "psi_sc",          "label": "Coef. sobrecarga combinación",  "unit": "—", "default": 0.2, "min": 0.0, "max": 1.0, "step": 0.05, "help_text": "Coeficiente de sobrecarga combinación" }
+            {
+              "id": "gamma_carga_est",
+              "label": "Coef. mayoración estático, γ",
+              "unit": "—",
+              "default": 1.5,
+              "min": 1.0,
+              "step": 0.05,
+              "help_text": "Coeficiente de mayoración estático"
+            },
+            {
+              "id": "gamma_carga_sis",
+              "label": "Coef. mayoración sísmico, γ",
+              "unit": "—",
+              "default": 1.0,
+              "min": 1.0,
+              "step": 0.05,
+              "help_text": "Coeficiente de mayoración sísmico"
+            },
+            {
+              "id": "psi_sc",
+              "label": "Coef. sobrecarga combinación",
+              "unit": "—",
+              "default": 0.2,
+              "min": 0.0,
+              "max": 1.0,
+              "step": 0.05,
+              "help_text": "Coeficiente de sobrecarga combinación"
+            }
           ]
         },
         {
           "name": "1.7 Coeficientes de Seguridad",
           "layout_columns": 2,
           "fields": [
-            { "id": "fs_desliz_est", "label": "FS deslizamiento estático",  "unit": "—", "default": 1.5,   "min": 1.0, "step": 0.05, "reference": "EC7 §6.5.3", "help_text": "Factor de seguridad al deslizamiento estático" },
-            { "id": "fs_desliz_sis", "label": "FS deslizamiento sísmico",   "unit": "—", "default": 1.1,   "min": 1.0, "step": 0.05, "help_text": "Factor de seguridad al deslizamiento sísmico" },
-            { "id": "fs_vuelco_est", "label": "FS vuelco estático",         "unit": "—", "default": 1.8,   "min": 1.0, "step": 0.05, "reference": "EC7 §6.5.4", "help_text": "Factor de seguridad al vuelco estático" },
-            { "id": "fs_vuelco_sis", "label": "FS vuelco sísmico",          "unit": "—", "default": 1.265, "min": 1.0, "step": 0.05, "help_text": "Factor de seguridad al vuelco sísmico" }
+            {
+              "id": "fs_desliz_est",
+              "label": "FS deslizamiento estático",
+              "unit": "—",
+              "default": 1.5,
+              "min": 1.0,
+              "step": 0.05,
+              "reference": "EC7 §6.5.3",
+              "help_text": "Factor de seguridad al deslizamiento estático"
+            },
+            {
+              "id": "fs_desliz_sis",
+              "label": "FS deslizamiento sísmico",
+              "unit": "—",
+              "default": 1.1,
+              "min": 1.0,
+              "step": 0.05,
+              "help_text": "Factor de seguridad al deslizamiento sísmico"
+            },
+            {
+              "id": "fs_vuelco_est",
+              "label": "FS vuelco estático",
+              "unit": "—",
+              "default": 1.8,
+              "min": 1.0,
+              "step": 0.05,
+              "reference": "EC7 §6.5.4",
+              "help_text": "Factor de seguridad al vuelco estático"
+            },
+            {
+              "id": "fs_vuelco_sis",
+              "label": "FS vuelco sísmico",
+              "unit": "—",
+              "default": 1.265,
+              "min": 1.0,
+              "step": 0.05,
+              "help_text": "Factor de seguridad al vuelco sísmico"
+            }
           ]
         }
       ]
     },
-
     {
       "id": "tab_materiales",
       "label": "4. Materiales",
@@ -1101,38 +1557,141 @@ def calculate_element(payload: dict) -> SolverResponse:
           "layout_columns": 2,
           "fields": [
             {
-              "id": "hormigon", "label": "Hormigón", "type": "select", "default": "HA-25",
+              "id": "hormigon",
+              "label": "Hormigón",
+              "type": "select",
+              "default": "HA-25",
               "options": [
-                {"value": "HA-20", "label": "HA-20", "fck": 20},
-                {"value": "HA-25", "label": "HA-25", "fck": 25},
-                {"value": "HA-30", "label": "HA-30", "fck": 30},
-                {"value": "HA-35", "label": "HA-35", "fck": 35},
-                {"value": "HA-40", "label": "HA-40", "fck": 40},
-                {"value": "HA-45", "label": "HA-45", "fck": 45},
-                {"value": "HA-50", "label": "HA-50", "fck": 50}
+                {
+                  "value": "HA-20",
+                  "label": "HA-20",
+                  "fck": 20
+                },
+                {
+                  "value": "HA-25",
+                  "label": "HA-25",
+                  "fck": 25
+                },
+                {
+                  "value": "HA-30",
+                  "label": "HA-30",
+                  "fck": 30
+                },
+                {
+                  "value": "HA-35",
+                  "label": "HA-35",
+                  "fck": 35
+                },
+                {
+                  "value": "HA-40",
+                  "label": "HA-40",
+                  "fck": 40
+                },
+                {
+                  "value": "HA-45",
+                  "label": "HA-45",
+                  "fck": 45
+                },
+                {
+                  "value": "HA-50",
+                  "label": "HA-50",
+                  "fck": 50
+                }
               ]
             },
             {
-              "id": "acero", "label": "Acero", "type": "select", "default": "B 500 S",
+              "id": "acero",
+              "label": "Acero",
+              "type": "select",
+              "default": "B 500 S",
               "options": [
-                {"value": "B 400 S", "label": "B 400 S", "fyk": 400},
-                {"value": "B 500 S", "label": "B 500 S", "fyk": 500},
-                {"value": "B 500 T", "label": "B 500 T", "fyk": 500},
-                {"value": "B 600 S", "label": "B 600 S", "fyk": 600}
+                {
+                  "value": "B 400 S",
+                  "label": "B 400 S",
+                  "fyk": 400
+                },
+                {
+                  "value": "B 500 S",
+                  "label": "B 500 S",
+                  "fyk": 500
+                },
+                {
+                  "value": "B 500 T",
+                  "label": "B 500 T",
+                  "fyk": 500
+                },
+                {
+                  "value": "B 600 S",
+                  "label": "B 600 S",
+                  "fyk": 600
+                }
               ]
             },
-            { "id": "fck",  "label": "fck",  "unit": "MPa", "type": "derived", "formula": "fck_from_select", "depends_on": ["hormigon"] },
-            { "id": "fcd",  "label": "fcd",  "unit": "MPa", "type": "derived", "formula": "fck / 1.5",       "depends_on": ["hormigon"] },
-            { "id": "fyk",  "label": "fyk",  "unit": "MPa", "type": "derived", "formula": "fyk_from_select", "depends_on": ["acero"] },
-            { "id": "fyd",  "label": "fyd",  "unit": "MPa", "type": "derived", "formula": "fyk / 1.15",      "depends_on": ["acero"] }
+            {
+              "id": "fck",
+              "label": "fck",
+              "unit": "MPa",
+              "type": "derived",
+              "formula": "fck_from_select",
+              "depends_on": [
+                "hormigon"
+              ]
+            },
+            {
+              "id": "fcd",
+              "label": "fcd",
+              "unit": "MPa",
+              "type": "derived",
+              "formula": "fck / 1.5",
+              "depends_on": [
+                "hormigon"
+              ]
+            },
+            {
+              "id": "fyk",
+              "label": "fyk",
+              "unit": "MPa",
+              "type": "derived",
+              "formula": "fyk_from_select",
+              "depends_on": [
+                "acero"
+              ]
+            },
+            {
+              "id": "fyd",
+              "label": "fyd",
+              "unit": "MPa",
+              "type": "derived",
+              "formula": "fyk / 1.15",
+              "depends_on": [
+                "acero"
+              ]
+            }
           ]
         },
         {
           "name": "2. Comprobación de Estabilidad — Parámetros Coulomb",
           "layout_columns": 2,
           "fields": [
-            { "id": "coulomb_d", "label": "Ángulo rozamiento δ (Coulomb)", "unit": "°", "default": 15.0, "min": 0.0, "max": 30.0, "step": 1.0 },
-            { "id": "coulomb_a", "label": "Inclinación trasdós α (Coulomb)","unit": "°", "default": 0.0,  "min": 0.0, "max": 45.0, "step": 1.0, "help_text": "Inclinación del trasdós del muro" }
+            {
+              "id": "coulomb_d",
+              "label": "Ángulo rozamiento δ (Coulomb)",
+              "unit": "°",
+              "default": 15.0,
+              "min": 0.0,
+              "max": 30.0,
+              "step": 1.0
+            },
+            {
+              "id": "coulomb_a",
+              "label": "Inclinación trasdós α (Coulomb)",
+              "unit": "°",
+              "default": 0.0,
+              "min": 0.0,
+              "max": 45.0,
+              "step": 1.0,
+              "help_text": "Inclinación del trasdós del muro"
+            }
           ]
         }
       ]
@@ -1209,13 +1768,26 @@ def index() -> rx.Component:
 ### Archivo: ./structural_app\shared\components\data_table.py
 ```python
 import reflex as rx
+from typing import Any
 
-def custom_data_table(matrix_data: rx.Var, columns: rx.Var, on_edit_fn: any, rows: rx.Var | int):
+from structural_app.core.base_state import BaseState
+
+
+def custom_data_table(
+    matrix_data: Any,
+    columns: Any,
+    rows: Any,
+    table_id: str,
+):
     return rx.data_editor(
         columns=columns,
         data=matrix_data,
         rows=rows,
-        on_cell_edited=on_edit_fn,
+        on_cell_edited=lambda pos, value: BaseState.update_table_cell(
+            table_id,
+            pos,
+            value,
+        ),
         width="100%",
     )
 ```
@@ -1265,10 +1837,14 @@ LABEL_STYLE = {
     "line_height": "1.3",
 }
 
-VALUE_STYLE = {
+VALUE_BOX_PROPS = {
     "min_width": "90px",
     "max_width": "110px",
-    "style": {"font_size": "12px", "font_family": "'Courier New', monospace"},
+}
+
+VALUE_TEXT_STYLE = {
+    "font_size": "12px",
+    "font_family": "'Courier New', monospace",
 }
 
 UNIT_STYLE = {
@@ -1302,7 +1878,22 @@ def _dots_spacer() -> rx.Component:
         margin_bottom="4px",
         min_width="8px",
     )
-
+    
+def render_main_calculate_button():
+    return rx.center(
+        rx.button(
+            rx.icon(tag="play", margin_right="10px"),
+            "Ejecutar Cálculo Completo",
+            on_click=BaseState.calculate, # Llamada explícita al cálculo
+            loading=BaseState.is_calculating, # Feedback visual
+            color_scheme="blue",
+            size="lg",
+            width="100%",
+            margin_y="2em",
+            box_shadow="lg"
+        ),
+        width="100%"
+    )
 
 def _field_row_number(field: rx.Var, state_ptr) -> rx.Component:
     val = state_ptr.form_data[field.id.to(str)] 
@@ -1325,11 +1916,12 @@ def _field_row_number(field: rx.Var, state_ptr) -> rx.Component:
         ),
         _dots_spacer(),
         rx.input(
-            value=val.to(str), 
+            value=val.to(str),
             on_change=lambda v: state_ptr.set_value(field.id, v),
             variant="surface",
             size="1",
-            **VALUE_STYLE,
+            **VALUE_BOX_PROPS,
+            style=VALUE_TEXT_STYLE,
         ),
         rx.text(field.unit, **UNIT_STYLE),
         width="100%", align="center", padding_y="3px", border_bottom=ROW_BORDER, spacing="2",
@@ -1407,23 +1999,6 @@ def _field_row_derived(field: rx.Var, state_ptr) -> rx.Component:
     )
 
 
-def _field_row(field: rx.Var, state_ptr) -> rx.Component:
-    """Dispatcher por tipo usando el atributo .type"""
-    return rx.cond(
-        field.type == "select",
-        _field_row_select(field, state_ptr),
-        rx.cond(
-            field.type == "toggle",
-            _field_row_toggle(field, state_ptr),
-            rx.cond(
-                field.type == "derived",
-                _field_row_derived(field, state_ptr),
-                _field_row_number(field, state_ptr),
-            ),
-        ),
-    )
-
-
 # ============================================================================
 # Grupo de campos (sección con cabecera azul oscuro)
 # ============================================================================
@@ -1445,17 +2020,40 @@ def _render_group(group: rx.Var, state_ptr) -> rx.Component:
 # ============================================================================
 
 def _render_data_table(element: rx.Var, state_ptr) -> rx.Component:
-    table_id = element["id"].to(str) 
-    
     return rx.vstack(
         rx.box(rx.text(element["title"], **SECTION_HEADER_STYLE), width="100%"),
         rx.box(
-            custom_data_table(
-                matrix_data=state_ptr.form_data[table_id],
-                columns=element["columns"],
-                # CASTING EXPLÍCITO: Convertimos a lista para que Reflex reconozca .length()
-                rows=element["default_rows"].to(list).length(), 
-                on_edit_fn=lambda pos, val: state_ptr.update_table_cell(table_id, pos, val),
+            rx.cond(
+                element["id"] == "tabla_estratos",
+                custom_data_table(
+                    matrix_data=state_ptr.form_data["tabla_estratos"],
+                    columns=[
+                        {"title": "Espesor", "type": "float"},
+                        {"title": "γ", "type": "float"},
+                        {"title": "φ", "type": "float"},
+                    ],
+                    rows=2,
+                    table_id="tabla_estratos",
+                ),
+                rx.cond(
+                    element["id"] == "tabla_combinaciones",
+                    custom_data_table(
+                        matrix_data=state_ptr.form_data["tabla_combinaciones"],
+                        columns=[
+                            {"title": "Caso", "type": "str"},
+                            {"title": "γG", "type": "float"},
+                            {"title": "γQ", "type": "float"},
+                            {"title": "ψ", "type": "float"},
+                        ],
+                        rows=2,
+                        table_id="tabla_combinaciones",
+                    ),
+                    rx.callout(
+                        "Tabla no configurada para renderizado estático.",
+                        icon="info",
+                        color_scheme="gray",
+                    ),
+                ),
             ),
             padding="2",
         ),
@@ -1466,7 +2064,6 @@ def _render_data_table(element: rx.Var, state_ptr) -> rx.Component:
         overflow="hidden",
         mb="3",
     )
-
 # ============================================================================
 # Elemento genérico: grupo O tabla según su tipo
 # ============================================================================
@@ -1483,15 +2080,13 @@ def _render_element(element: rx.Var, state_ptr) -> rx.Component:
 # Contenido de una pestaña
 # ============================================================================
 
-def _render_tab_content(tab: rx.Var, state_ptr) -> rx.Component:
+def render_tab_content(tab: rx.Var, state_ptr) -> rx.Component:
     return rx.vstack(
-        # Especificamos que 'tab.groups' contiene diccionarios (Dict)
-        rx.foreach(tab.groups, lambda g: _render_element(g, state_ptr)), 
+        rx.foreach(tab.groups, lambda g: _render_element(g, state_ptr)),
         width="100%",
         align_items="stretch",
         padding_top="3",
     )
-
 
 # ============================================================================
 # Cabecera del formulario
@@ -1544,7 +2139,7 @@ def render_dynamic_form(config: rx.Var, state_ptr) -> rx.Component:
         rx.foreach(
             config.tabs,
             lambda tab: rx.tabs.content(
-                _render_tab_content(tab, state_ptr),
+                render_tab_content(tab, state_ptr),
                 value=tab.id,
             ),
         ),
@@ -1588,31 +2183,109 @@ def render_dynamic_form(config: rx.Var, state_ptr) -> rx.Component:
         spacing="0",
     )
 
+# ============================================================================
+# Renderizadores específicos para cálculos parciales
+# ============================================================================
 
+def _field_row_calculation_trigger(field: rx.Var, state_ptr) -> rx.Component:
+    return rx.box(
+        rx.button(
+            field.label,
+            on_click=state_ptr.run_partial_calculation(field.action_name),
+            variant="outline",
+            color_scheme="blue",
+            size="1", # Tamaño pequeño para encajar en la fila
+            width="100%",
+            margin_y="4px",
+            style={"font_size": "11px", "text_transform": "uppercase"}
+        ),
+        width="100%",
+        padding_x="28px", # Alineado con el margen de los símbolos
+    )
+
+def _field_row_info_label(field: rx.Var, state_ptr) -> rx.Component:
+    val = state_ptr.form_data[field.id.to(str)]
+
+    return rx.hstack(
+        rx.text(field.symbol, **SYMBOL_STYLE),
+        rx.text(field.label, **LABEL_STYLE),
+        _dots_spacer(),
+        rx.badge(
+            rx.cond(
+                val,
+                val.to_string() + f" {field.unit}",
+                f"--- {field.unit}",
+            ),
+            variant="soft",
+            color_scheme="green",
+            **VALUE_BOX_PROPS,
+            style={
+                **VALUE_TEXT_STYLE,
+                "justify_content": "center",
+            },
+        ),
+        rx.text(field.unit, **UNIT_STYLE),
+        width="100%",
+        align="center",
+        padding_y="3px",
+        border_bottom=ROW_BORDER,
+        spacing="2",
+    )
+# ============================================================================
+# DESPACHADOR PRINCIPAL (CORREGIDO)
+# ============================================================================
+
+def _field_row(field: rx.Var, state_ptr) -> rx.Component:
+    """Dispatcher actualizado para incluir triggers e info_labels"""
+    return rx.match(
+        field.type,
+        ("select", _field_row_select(field, state_ptr)),
+        ("toggle", _field_row_toggle(field, state_ptr)),
+        ("derived", _field_row_derived(field, state_ptr)),
+        ("calculation_trigger", _field_row_calculation_trigger(field, state_ptr)), # <-- AÑADIDO
+        ("info_label", _field_row_info_label(field, state_ptr)),                  # <-- AÑADIDO
+        _field_row_number(field, state_ptr), # Default
+    )
 # ============================================================================
 # Alias de compatibilidad (por si otros módulos los importan)
 # ============================================================================
 
 def render_field(field: FormField):
-    return rx.vstack(
-        rx.hstack(
-            rx.text(field.label, font_weight="bold"),
-            # Si hay texto de ayuda, mostramos un icono con tooltip
-            rx.cond(
-                field.help_text != "",
-                rx.tooltip(
-                    rx.icon(tag="info", size=15, color="gray"),
-                    content=field.help_text,
-                )
+    if field.type == "calculation_trigger":
+        return rx.button(
+            field.label,
+            on_click=BaseState.run_partial_calculation(field.action_name),
+            variant="outline",
+            color_scheme="orange", # Color distinto para diferenciar del final
+            size="sm",
+            margin_top="10px",
+            width="100%"
+        )
+
+    if field.type == "info_label":
+        # Usamos cond para manejar casos donde el valor aún no existe en form_data
+        value = BaseState.form_data[field.id]
+        
+        return rx.vstack(
+            rx.text(field.label, font_size="0.75em", color="gray.500", margin_bottom="-5px"),
+            rx.badge(
+                rx.cond(
+                    value,
+                    value.to_string() + f" {field.unit}",
+                    f"--- {field.unit}"
+                ),
+                variant="subtle",
+                color_scheme="teal",
+                padding="6px",
+                border_radius="md",
+                width="100%",
+                text_align="center"
             ),
-            align_items="center",
-            spacing="2",
-        ),
-        rx.input(
-            # ... resto de la configuración del input
-        ),
-        width="100%",
-    )
+            align_items="start",
+            width="100%"
+        )
+    
+
 def render_group(group: rx.Var, state_ptr):
     return _render_group(group, state_ptr)
 
@@ -1644,49 +2317,164 @@ def render_form_tabs(config: dict) -> rx.Component:
         default_value=tabs[0]["id"] if tabs else "",
         width="100%",
     )
+    
 ```
 
 ### Archivo: ./structural_app\shared\components\generic_page.py
 ```python
 import reflex as rx
-from structural_app.shared.components.layout import main_layout
-# Importación corregida: usamos el nombre real de la función
-from structural_app.shared.components.form_renderer import render_dynamic_form 
-from structural_app.shared.components.result_cards import results_panel
-from structural_app.core.base_state import BaseState
-from .sketch_viewer import sketch_viewer
 
-def generic_form_page():
-    """Página con disposición 50/50 equilibrada."""
+from structural_app.core.base_state import BaseState
+from structural_app.shared.components.layout import main_layout
+from structural_app.shared.components.generic_page_standard import standard_page_content
+from structural_app.shared.components.generic_page_split_tabs import split_tabs_page_content
+
+
+def generic_form_page() -> rx.Component:
     config = BaseState.active_form_config
 
     return main_layout(
-        rx.flex(
-            # PANEL IZQUIERDO: Inputs + Sketch (50%)
-            rx.box(
-                rx.vstack(
-                    render_dynamic_form(config, BaseState),
-                    sketch_viewer(BaseState),
-                    spacing="6",
-                    width="100%",
-                ),
-                flex="1",  # Toma la mitad del espacio
-                padding="4",
-            ),
+        rx.cond(
+            config.page_layout.type == "split_tabs",
+            split_tabs_page_content(config),
+            standard_page_content(config),
+        )
+    )
+```
 
-            # PANEL DERECHO: Resultados (50%)
-            rx.box(
-                results_panel(BaseState),
-                flex="1",  # Toma la otra mitad del espacio
-                padding="4",
-                border_left={"lg": "1px solid #e5e7eb"}, # Línea divisoria sutil
+### Archivo: ./structural_app\shared\components\generic_page_split_tabs.py
+```python
+import reflex as rx
+
+from structural_app.core.base_state import BaseState
+from structural_app.shared.components.form_renderer import (
+    render_form_header,
+    render_tab_content,
+)
+from structural_app.shared.components.result_cards import results_panel
+
+
+def _tab_panel(config, default_tab: str) -> rx.Component:
+    return rx.card(
+        rx.tabs.root(
+            rx.tabs.list(
+                rx.foreach(
+                    config.tabs,
+                    lambda tab: rx.tabs.trigger(
+                        tab.label,
+                        value=tab.id,
+                        style={
+                            "font_size": "12px",
+                            "padding": "6px 12px",
+                        },
+                    ),
+                ),
+                style={
+                    "border_bottom": "2px solid rgb(0,50,100)",
+                    "width": "100%",
+                },
             ),
-            
+            rx.foreach(
+                config.tabs,
+                lambda tab: rx.tabs.content(
+                    render_tab_content(tab, BaseState),
+                    value=tab.id,
+                ),
+            ),
+            default_value=default_tab,
+            width="100%",
+        ),
+        width="100%",
+        padding="3",
+    )
+
+
+def split_tabs_page_content(config) -> rx.Component:
+    return rx.vstack(
+        render_form_header(config),
+
+        rx.grid(
+            _tab_panel(config, "tab_geometria"),
+            _tab_panel(config, "tab_acciones"),
+            columns={
+                "initial": "1",
+                "lg": "2",
+            },
+            spacing="4",
+            width="100%",
+            align_items="start",
+        ),
+
+        rx.button(
+            rx.hstack(
+                rx.icon("calculator", size=16),
+                rx.text("CALCULAR"),
+                spacing="2",
+                align="center",
+            ),
+            on_click=BaseState.calculate,
+            loading=BaseState.is_calculating,
+            width="100%",
+            size="2",
+            color_scheme="blue",
+            margin_top="4",
+        ),
+
+        rx.divider(),
+
+        rx.box(
+            results_panel(BaseState),
+            width="100%",
+        ),
+
+        width="100%",
+        spacing="4",
+        padding="4",
+    )
+```
+
+### Archivo: ./structural_app\shared\components\generic_page_standard.py
+```python
+import reflex as rx
+
+from structural_app.core.base_state import BaseState
+from structural_app.shared.components.form_renderer import render_dynamic_form
+from structural_app.shared.components.result_cards import results_panel
+from structural_app.shared.components.sketch_viewer import sketch_viewer
+
+
+def standard_page_content(config) -> rx.Component:
+    return rx.vstack(
+        rx.flex(
+            rx.box(
+                render_dynamic_form(config, BaseState),
+                flex="2",
+                min_width="0",
+                padding="4",
+            ),
+            rx.box(
+                sketch_viewer(BaseState),
+                flex="1",
+                min_width="320px",
+                padding="4",
+                border_left={"lg": "1px solid #e5e7eb"},
+            ),
             direction={"sm": "column", "lg": "row"},
             width="100%",
             spacing="2",
+            align="start",
         ),
-        state_class=BaseState
+
+        rx.divider(),
+
+        rx.box(
+            results_panel(BaseState),
+            width="100%",
+            padding="4",
+        ),
+
+        width="100%",
+        spacing="4",
     )
 ```
 
@@ -2519,6 +3307,7 @@ def theory_sidebar():
 ### Archivo: ./structural_app\shared\components\toolbar.py
 ```python
 import reflex as rx
+
 from structural_app.core.base_state import BaseState
 
 def form_toolbar(state_class: rx.State, upload_id: str = "upload_json"):
@@ -2623,20 +3412,19 @@ def form_toolbar(state_class: rx.State, upload_id: str = "upload_json"):
         
         rx.spacer(),
         
-        # Botón Reset
         rx.button(
             rx.icon("refresh-cw"), 
             on_click=state_class.reset_form,
             variant="ghost", size="2", color_scheme="red", cursor="pointer"
         ),
         
-        # Estilos de posicionamiento y márgenes
+        # --- AJUSTES PARA REDUCIR ESPACIO SUPERIOR ---
         width="100%",
-        padding_top="0px",      # Pegado al techo
-        padding_bottom="4px",   # Pequeño espacio sobre la línea divisoria
-        margin_top="-4px",      # Compensa posibles espacios del contenedor padre
+        padding_top="0px",       # Elimina el espacio interno superior
+        padding_bottom="4px",    # Deja un pequeño espacio abajo para equilibrio visual
+        margin_top="-8px",       # Sube el componente para anular el gap del contenedor padre
+        align="center",          # Centra los elementos verticalmente
         border_bottom="1px solid #f3f4f6",
-        align="center",
     )
 ```
 

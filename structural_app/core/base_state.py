@@ -11,40 +11,54 @@ from structural_app.shared.infrastructure.pdf_export import PDFExportProvider
 
 
 # ---------------------------------------------------------------------------
-# Modelos auxiliares — FormConfig AMPLIADO con tabs y has_tabs
+# Modelos auxiliares — FormConfig AMPLIADO con tabs, tablas y page_layout
 # ---------------------------------------------------------------------------
 
 class BookReference(BaseModel):
     title: str = ""
     url: str = ""
+
+
 class SearchResult(BaseModel):
     title: str = ""
     description: str = ""
     form_key: str = ""
+
+
 class FormField(BaseModel):
     id: str = ""
-    symbol: str = ""  # Agregado para el renderizador
+    symbol: str = ""
     label: str = ""
     unit: str = ""
     type: str = "number"
     default: Any = 0.0
     options: List[Dict[str, Any]] = []
     help_text: str = ""
+    action_name: str = ""
+
+
 class FormElement(BaseModel):
     """Representa tanto un grupo de campos como una tabla."""
     type: str = "group"
     name: str = ""
     fields: List[FormField] = []
+
     # Campos específicos para data_table
     id: str = ""
     title: str = ""
     columns: List[Dict[str, Any]] = []
     default_rows: List[List[Any]] = []
 
+
 class FormTab(BaseModel):
     id: str = ""
     label: str = ""
-    groups: List[FormElement] = [] # Ahora Reflex sabe qué hay dentro
+    groups: List[FormElement] = []
+
+class PageLayoutConfig(BaseModel):
+    type: str = "standard"
+    left_default_tab: str = ""
+    right_default_tab: str = ""
 
 class FormConfig(BaseModel):
     form_key: str = ""
@@ -52,12 +66,15 @@ class FormConfig(BaseModel):
     description: str = ""
     extended_info: Optional[str] = None
     references: List[BookReference] = []
-    groups: List[FormElement] = [] # Consistencia con tabs
+    groups: List[FormElement] = []
     tabs: List[FormTab] = []
     has_tabs: bool = False
-    features: Dict[str, bool] = {"svg": False, "viewer_3d": False, "sketch": False}
-
-
+    features: Dict[str, bool] = {
+        "svg": False,
+        "viewer_3d": False,
+        "sketch": False,
+    }
+    page_layout: PageLayoutConfig = PageLayoutConfig()
 # ---------------------------------------------------------------------------
 # Estado Base
 # ---------------------------------------------------------------------------
@@ -69,6 +86,8 @@ class BaseState(rx.State):
     form_data: Dict[str, Any] = {}
     results: SolverResponse = SolverResponse(is_ok=True, checks=[], summary="Esperando datos...")
     show_theory_popup: bool = False
+    left_active_tab: str = ""
+    right_active_tab: str = ""
 
     # Gestión de Archivos de Sesión (JSON)
     save_filename: str = "proyecto_calculo.json"
@@ -84,6 +103,20 @@ class BaseState(rx.State):
     excel_filename: str = "reporte_calculo.xlsx"
     is_excel_dialog_open: bool = False
 
+
+
+    @rx.event
+    def set_left_active_tab(self, tab_id: str):
+        if tab_id == self.right_active_tab:
+            return
+        self.left_active_tab = tab_id
+
+
+    @rx.event
+    def set_right_active_tab(self, tab_id: str):
+        if tab_id == self.left_active_tab:
+            return
+        self.right_active_tab = tab_id
 
     def toggle_theory(self):
         self.show_theory_popup = not self.show_theory_popup
@@ -112,18 +145,45 @@ class BaseState(rx.State):
     @rx.event
     async def set_current_form(self, key: str):
         self.current_form_key = ""
-        self.results = SolverResponse(is_ok=False, checks=[], summary="Cargando...", plot_data=None)
+        self.results = SolverResponse(
+            is_ok=False,
+            checks=[],
+            summary="Cargando...",
+            plot_data=None,
+        )
         self.form_data = {}
         self.last_calculation_hash = ""
+        self.left_active_tab = ""
+        self.right_active_tab = ""
         yield
 
         self.current_form_key = key
         config = FORM_REGISTRY.get(key, {})
-        new_data = {}
 
+        layout_cfg = config.get("page_layout", {})
+        tabs = config.get("tabs", [])
+        tab_ids = [tab.get("id", "") for tab in tabs if tab.get("id")]
+
+        left_default = layout_cfg.get("left_default_tab") or (tab_ids[0] if tab_ids else "")
+        right_default = layout_cfg.get("right_default_tab") or ""
+
+        if not right_default:
+            right_default = next((tab_id for tab_id in tab_ids if tab_id != left_default), "")
+
+        if right_default == left_default:
+            right_default = next((tab_id for tab_id in tab_ids if tab_id != left_default), "")
+
+        self.left_active_tab = left_default
+        self.right_active_tab = right_default
+
+        new_data = {}
         # Determinar fuente de grupos: tabs o legacy
         if "tabs" in config:
-            sources = [g for tab in config["tabs"] for g in tab.get("groups", [])]
+            sources = [
+                g
+                for tab in config["tabs"]
+                for g in tab.get("groups", [])
+            ]
         else:
             sources = config.get("groups", [])
 
@@ -132,15 +192,17 @@ class BaseState(rx.State):
 
             if elem_type == "data_table":
                 table_id = element.get("id") or element.get("name")
-                if not table_id:
-                    continue
-                new_data[table_id] = element.get("default_rows", [])
+                if table_id:
+                    # Asegúrate de que siempre haya una lista de listas inicial
+                    # Si config.json no tiene default_rows, crea una matriz 5x3 vacía
+                    new_data[table_id] = element.get("default_rows", [["" for _ in range(3)] for _ in range(5)])
 
             else:
                 for f in element.get("fields", []):
                     field_id = f.get("id") or f.get("name")
                     if not field_id:
                         continue
+
                     field_type = f.get("type", "number")
 
                     if field_type in ("number", ""):
@@ -156,12 +218,15 @@ class BaseState(rx.State):
                     elif field_type == "toggle":
                         new_data[field_id] = bool(f.get("default", False))
 
-                    elif field_type == "derived":
-                        pass  # calculado por el adaptador, no se inicializa
+                    elif field_type in ("derived", "calculation_trigger"):
+                        pass
+
+                    elif field_type == "info_label":
+                        new_data[field_id] = ""
 
         self.form_data = new_data
         yield
-
+        
     @rx.event
     def update_table_cell(self, table_id: str, pos: tuple[int, int], value: str):
         row, col = pos
@@ -200,8 +265,12 @@ class BaseState(rx.State):
         self.last_calculation_hash = current_hash
         payload = self.form_data.copy()
         payload["_features"] = self.active_form_config.features
-        self.results = SolverDispatcher.dispatch_calculation(self.current_form_key, payload)
+        self.results = SolverDispatcher.dispatch_calculation(
+            self.current_form_key,
+            payload,
+        )
         self.is_calculating = False
+        yield
 
     # --- Exportaciones ---
     @rx.event
@@ -362,4 +431,22 @@ class BaseState(rx.State):
         self.last_calculation_hash = ""
         yield
 
+    @rx.event
+    def run_partial_calculation(self, action_name: str):
+        import structural_app.forms.muro.adapter as adapter
+        
+        if hasattr(adapter, action_name):
+            func = getattr(adapter, action_name)
+            results = func(self.form_data)
+            
+            # Actualizamos y re-asignamos para asegurar la reactividad
+            new_data = self.form_data.copy()
+            new_data.update(results)
+            self.form_data = new_data 
+        else:
+            print(f"Error: {action_name} no existe en adapter.py")
+
     def reset_form(self): return rx.call_script("window.location.reload();")
+
+    def set_field_value(self, field_id: str, value: str):
+        self.form_data[field_id] = value

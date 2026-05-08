@@ -41,10 +41,14 @@ LABEL_STYLE = {
     "line_height": "1.3",
 }
 
-VALUE_STYLE = {
+VALUE_BOX_PROPS = {
     "min_width": "90px",
     "max_width": "110px",
-    "style": {"font_size": "12px", "font_family": "'Courier New', monospace"},
+}
+
+VALUE_TEXT_STYLE = {
+    "font_size": "12px",
+    "font_family": "'Courier New', monospace",
 }
 
 UNIT_STYLE = {
@@ -78,7 +82,22 @@ def _dots_spacer() -> rx.Component:
         margin_bottom="4px",
         min_width="8px",
     )
-
+    
+def render_main_calculate_button():
+    return rx.center(
+        rx.button(
+            rx.icon(tag="play", margin_right="10px"),
+            "Ejecutar Cálculo Completo",
+            on_click=BaseState.calculate, # Llamada explícita al cálculo
+            loading=BaseState.is_calculating, # Feedback visual
+            color_scheme="blue",
+            size="lg",
+            width="100%",
+            margin_y="2em",
+            box_shadow="lg"
+        ),
+        width="100%"
+    )
 
 def _field_row_number(field: rx.Var, state_ptr) -> rx.Component:
     val = state_ptr.form_data[field.id.to(str)] 
@@ -101,11 +120,12 @@ def _field_row_number(field: rx.Var, state_ptr) -> rx.Component:
         ),
         _dots_spacer(),
         rx.input(
-            value=val.to(str), 
+            value=val.to(str),
             on_change=lambda v: state_ptr.set_value(field.id, v),
             variant="surface",
             size="1",
-            **VALUE_STYLE,
+            **VALUE_BOX_PROPS,
+            style=VALUE_TEXT_STYLE,
         ),
         rx.text(field.unit, **UNIT_STYLE),
         width="100%", align="center", padding_y="3px", border_bottom=ROW_BORDER, spacing="2",
@@ -183,23 +203,6 @@ def _field_row_derived(field: rx.Var, state_ptr) -> rx.Component:
     )
 
 
-def _field_row(field: rx.Var, state_ptr) -> rx.Component:
-    """Dispatcher por tipo usando el atributo .type"""
-    return rx.cond(
-        field.type == "select",
-        _field_row_select(field, state_ptr),
-        rx.cond(
-            field.type == "toggle",
-            _field_row_toggle(field, state_ptr),
-            rx.cond(
-                field.type == "derived",
-                _field_row_derived(field, state_ptr),
-                _field_row_number(field, state_ptr),
-            ),
-        ),
-    )
-
-
 # ============================================================================
 # Grupo de campos (sección con cabecera azul oscuro)
 # ============================================================================
@@ -221,17 +224,40 @@ def _render_group(group: rx.Var, state_ptr) -> rx.Component:
 # ============================================================================
 
 def _render_data_table(element: rx.Var, state_ptr) -> rx.Component:
-    table_id = element["id"].to(str) 
-    
     return rx.vstack(
         rx.box(rx.text(element["title"], **SECTION_HEADER_STYLE), width="100%"),
         rx.box(
-            custom_data_table(
-                matrix_data=state_ptr.form_data[table_id],
-                columns=element["columns"],
-                # CASTING EXPLÍCITO: Convertimos a lista para que Reflex reconozca .length()
-                rows=element["default_rows"].to(list).length(), 
-                on_edit_fn=lambda pos, val: state_ptr.update_table_cell(table_id, pos, val),
+            rx.cond(
+                element["id"] == "tabla_estratos",
+                custom_data_table(
+                    matrix_data=state_ptr.form_data["tabla_estratos"],
+                    columns=[
+                        {"title": "Espesor", "type": "float"},
+                        {"title": "γ", "type": "float"},
+                        {"title": "φ", "type": "float"},
+                    ],
+                    rows=2,
+                    table_id="tabla_estratos",
+                ),
+                rx.cond(
+                    element["id"] == "tabla_combinaciones",
+                    custom_data_table(
+                        matrix_data=state_ptr.form_data["tabla_combinaciones"],
+                        columns=[
+                            {"title": "Caso", "type": "str"},
+                            {"title": "γG", "type": "float"},
+                            {"title": "γQ", "type": "float"},
+                            {"title": "ψ", "type": "float"},
+                        ],
+                        rows=2,
+                        table_id="tabla_combinaciones",
+                    ),
+                    rx.callout(
+                        "Tabla no configurada para renderizado estático.",
+                        icon="info",
+                        color_scheme="gray",
+                    ),
+                ),
             ),
             padding="2",
         ),
@@ -242,7 +268,6 @@ def _render_data_table(element: rx.Var, state_ptr) -> rx.Component:
         overflow="hidden",
         mb="3",
     )
-
 # ============================================================================
 # Elemento genérico: grupo O tabla según su tipo
 # ============================================================================
@@ -259,15 +284,13 @@ def _render_element(element: rx.Var, state_ptr) -> rx.Component:
 # Contenido de una pestaña
 # ============================================================================
 
-def _render_tab_content(tab: rx.Var, state_ptr) -> rx.Component:
+def render_tab_content(tab: rx.Var, state_ptr) -> rx.Component:
     return rx.vstack(
-        # Especificamos que 'tab.groups' contiene diccionarios (Dict)
-        rx.foreach(tab.groups, lambda g: _render_element(g, state_ptr)), 
+        rx.foreach(tab.groups, lambda g: _render_element(g, state_ptr)),
         width="100%",
         align_items="stretch",
         padding_top="3",
     )
-
 
 # ============================================================================
 # Cabecera del formulario
@@ -320,7 +343,7 @@ def render_dynamic_form(config: rx.Var, state_ptr) -> rx.Component:
         rx.foreach(
             config.tabs,
             lambda tab: rx.tabs.content(
-                _render_tab_content(tab, state_ptr),
+                render_tab_content(tab, state_ptr),
                 value=tab.id,
             ),
         ),
@@ -364,31 +387,109 @@ def render_dynamic_form(config: rx.Var, state_ptr) -> rx.Component:
         spacing="0",
     )
 
+# ============================================================================
+# Renderizadores específicos para cálculos parciales
+# ============================================================================
 
+def _field_row_calculation_trigger(field: rx.Var, state_ptr) -> rx.Component:
+    return rx.box(
+        rx.button(
+            field.label,
+            on_click=state_ptr.run_partial_calculation(field.action_name),
+            variant="outline",
+            color_scheme="blue",
+            size="1", # Tamaño pequeño para encajar en la fila
+            width="100%",
+            margin_y="4px",
+            style={"font_size": "11px", "text_transform": "uppercase"}
+        ),
+        width="100%",
+        padding_x="28px", # Alineado con el margen de los símbolos
+    )
+
+def _field_row_info_label(field: rx.Var, state_ptr) -> rx.Component:
+    val = state_ptr.form_data[field.id.to(str)]
+
+    return rx.hstack(
+        rx.text(field.symbol, **SYMBOL_STYLE),
+        rx.text(field.label, **LABEL_STYLE),
+        _dots_spacer(),
+        rx.badge(
+            rx.cond(
+                val,
+                val.to_string() + f" {field.unit}",
+                f"--- {field.unit}",
+            ),
+            variant="soft",
+            color_scheme="green",
+            **VALUE_BOX_PROPS,
+            style={
+                **VALUE_TEXT_STYLE,
+                "justify_content": "center",
+            },
+        ),
+        rx.text(field.unit, **UNIT_STYLE),
+        width="100%",
+        align="center",
+        padding_y="3px",
+        border_bottom=ROW_BORDER,
+        spacing="2",
+    )
+# ============================================================================
+# DESPACHADOR PRINCIPAL (CORREGIDO)
+# ============================================================================
+
+def _field_row(field: rx.Var, state_ptr) -> rx.Component:
+    """Dispatcher actualizado para incluir triggers e info_labels"""
+    return rx.match(
+        field.type,
+        ("select", _field_row_select(field, state_ptr)),
+        ("toggle", _field_row_toggle(field, state_ptr)),
+        ("derived", _field_row_derived(field, state_ptr)),
+        ("calculation_trigger", _field_row_calculation_trigger(field, state_ptr)), # <-- AÑADIDO
+        ("info_label", _field_row_info_label(field, state_ptr)),                  # <-- AÑADIDO
+        _field_row_number(field, state_ptr), # Default
+    )
 # ============================================================================
 # Alias de compatibilidad (por si otros módulos los importan)
 # ============================================================================
 
 def render_field(field: FormField):
-    return rx.vstack(
-        rx.hstack(
-            rx.text(field.label, font_weight="bold"),
-            # Si hay texto de ayuda, mostramos un icono con tooltip
-            rx.cond(
-                field.help_text != "",
-                rx.tooltip(
-                    rx.icon(tag="info", size=15, color="gray"),
-                    content=field.help_text,
-                )
+    if field.type == "calculation_trigger":
+        return rx.button(
+            field.label,
+            on_click=BaseState.run_partial_calculation(field.action_name),
+            variant="outline",
+            color_scheme="orange", # Color distinto para diferenciar del final
+            size="sm",
+            margin_top="10px",
+            width="100%"
+        )
+
+    if field.type == "info_label":
+        # Usamos cond para manejar casos donde el valor aún no existe en form_data
+        value = BaseState.form_data[field.id]
+        
+        return rx.vstack(
+            rx.text(field.label, font_size="0.75em", color="gray.500", margin_bottom="-5px"),
+            rx.badge(
+                rx.cond(
+                    value,
+                    value.to_string() + f" {field.unit}",
+                    f"--- {field.unit}"
+                ),
+                variant="subtle",
+                color_scheme="teal",
+                padding="6px",
+                border_radius="md",
+                width="100%",
+                text_align="center"
             ),
-            align_items="center",
-            spacing="2",
-        ),
-        rx.input(
-            # ... resto de la configuración del input
-        ),
-        width="100%",
-    )
+            align_items="start",
+            width="100%"
+        )
+    
+
 def render_group(group: rx.Var, state_ptr):
     return _render_group(group, state_ptr)
 
@@ -420,3 +521,4 @@ def render_form_tabs(config: dict) -> rx.Component:
         default_value=tabs[0]["id"] if tabs else "",
         width="100%",
     )
+    

@@ -160,6 +160,7 @@ class FormField(BaseModel):
 class FormElement(BaseModel):
     """Representa tanto un grupo de campos como una tabla."""
     type: str = "group"
+    side: str = "left"
     name: str = ""
     fields: List[FormField] = []
 
@@ -195,7 +196,7 @@ class FormConfig(BaseModel):
         "sketch": False,
     }
     page_layout: PageLayoutConfig = PageLayoutConfig()
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------left_column-------------
 # Estado Base
 # ---------------------------------------------------------------------------
 class BaseState(rx.State):
@@ -206,6 +207,8 @@ class BaseState(rx.State):
     form_data: Dict[str, Any] = {}
     results: SolverResponse = SolverResponse(is_ok=True, checks=[], summary="Esperando datos...")
     show_theory_popup: bool = False
+    left_active_tab: str = ""
+    right_active_tab: str = ""
 
     # Gestión de Archivos de Sesión (JSON)
     save_filename: str = "proyecto_calculo.json"
@@ -221,6 +224,48 @@ class BaseState(rx.State):
     excel_filename: str = "reporte_calculo.xlsx"
     is_excel_dialog_open: bool = False
 
+
+
+    @rx.event
+    def set_active_tab(self, tab_id: str):
+        self.left_active_tab = tab_id
+        self.right_active_tab = tab_id
+
+    @rx.var
+    def left_column_groups(self) -> List[FormElement]:
+        if not self.active_form_config or not self.left_active_tab:
+            return []
+        active_tab = next(
+            (t for t in self.active_form_config.tabs if t.id == self.left_active_tab), None
+        )
+        if not active_tab:
+            return []
+        return [g for g in active_tab.groups if g.side == "left"]
+
+    @rx.var
+    def right_column_groups(self) -> List[FormElement]:
+        if not self.active_form_config or not self.left_active_tab:
+            return []
+        active_tab = next(
+            (t for t in self.active_form_config.tabs if t.id == self.left_active_tab), None
+        )
+        if not active_tab:
+            return []
+        return [g for g in active_tab.groups if g.side == "right"]
+
+
+    @rx.event
+    def set_left_active_tab(self, tab_id: str):
+        if tab_id == self.right_active_tab:
+            return
+        self.left_active_tab = tab_id
+
+
+    @rx.event
+    def set_right_active_tab(self, tab_id: str):
+        if tab_id == self.left_active_tab:
+            return
+        self.right_active_tab = tab_id
 
     def toggle_theory(self):
         self.show_theory_popup = not self.show_theory_popup
@@ -256,15 +301,31 @@ class BaseState(rx.State):
             plot_data=None,
         )
         self.form_data = {}
-        self.form_data = {}
         self.last_calculation_hash = ""
+        self.left_active_tab = ""
+        self.right_active_tab = ""
         yield
 
         self.current_form_key = key
         config = FORM_REGISTRY.get(key, {})
 
-        new_data = {}
+        layout_cfg = config.get("page_layout", {})
+        tabs = config.get("tabs", [])
+        tab_ids = [tab.get("id", "") for tab in tabs if tab.get("id")]
 
+        left_default = layout_cfg.get("left_default_tab") or (tab_ids[0] if tab_ids else "")
+        right_default = layout_cfg.get("right_default_tab") or ""
+
+        if not right_default:
+            right_default = next((tab_id for tab_id in tab_ids if tab_id != left_default), "")
+
+        if right_default == left_default:
+            right_default = next((tab_id for tab_id in tab_ids if tab_id != left_default), "")
+
+        self.left_active_tab = left_default
+        self.right_active_tab = left_default
+
+        new_data = {}
         # Determinar fuente de grupos: tabs o legacy
         if "tabs" in config:
             sources = [
@@ -373,6 +434,7 @@ class BaseState(rx.State):
         config_dict = FORM_REGISTRY.get(self.current_form_key, {})
         payload = ExportPayloadService.create_report_data(config_dict, self)
         return PDFExportProvider.save_pdf_to_server(payload, self.save_path, self.pdf_filename)
+
 
     @rx.event
     def open_excel_dialog(self):
@@ -1081,10 +1143,10 @@ def calculate_element(payload: dict) -> SolverResponse:
     "sketch": true
   },
   "page_layout": {
-  "type": "split_tabs",
-  "left_default_tab": "tab_geometria",
-  "right_default_tab": "tab_acciones"
-},
+    "type": "split_tabs",
+    "left_default_tab": "tab_geometria",
+    "right_default_tab": "tab_acciones"
+  },
   "tabs": [
     {
       "id": "tab_geometria",
@@ -1092,6 +1154,7 @@ def calculate_element(payload: dict) -> SolverResponse:
       "groups": [
         {
           "name": "1.1 Geometría del Muro",
+          "side": "left",
           "layout_columns": 2,
           "fields": [
             {
@@ -1141,6 +1204,7 @@ def calculate_element(payload: dict) -> SolverResponse:
         },
         {
           "name": "1.1 Geometría de la Zapata",
+          "side": "left",
           "layout_columns": 2,
           "fields": [
             {
@@ -1198,6 +1262,7 @@ def calculate_element(payload: dict) -> SolverResponse:
       "groups": [
         {
           "name": "1.2 Características del Relleno",
+          "side": "left",
           "layout_columns": 2,
           "fields": [
             {
@@ -1276,6 +1341,7 @@ def calculate_element(payload: dict) -> SolverResponse:
         {
           "type": "data_table",
           "id": "tabla_estratos",
+          "side": "right",
           "title": "Estratos del terreno",
           "columns": [
             {
@@ -1292,20 +1358,13 @@ def calculate_element(payload: dict) -> SolverResponse:
             }
           ],
           "default_rows": [
-            [
-              1.0,
-              18.0,
-              30.0
-            ],
-            [
-              1.0,
-              19.0,
-              32.0
-            ]
+            [1.0, 18.0, 30.0],
+            [1.0, 19.0, 32.0]
           ]
         },
         {
           "name": "1.3 Características del Terreno de Apoyo",
+          "side": "right",
           "layout_columns": 2,
           "fields": [
             {
@@ -1356,6 +1415,7 @@ def calculate_element(payload: dict) -> SolverResponse:
       "groups": [
         {
           "name": "1.4 Acciones en Cabeza del Muro",
+          "side": "left",
           "layout_columns": 2,
           "fields": [
             {
@@ -1387,6 +1447,7 @@ def calculate_element(payload: dict) -> SolverResponse:
         {
           "type": "data_table",
           "id": "tabla_combinaciones",
+          "side": "left",
           "title": "Combinaciones de acciones",
           "columns": [
             {
@@ -1407,22 +1468,13 @@ def calculate_element(payload: dict) -> SolverResponse:
             }
           ],
           "default_rows": [
-            [
-              "EST",
-              1.35,
-              1.5,
-              1.0
-            ],
-            [
-              "SIS",
-              1.0,
-              1.0,
-              0.2
-            ]
+            ["EST", 1.35, 1.5, 1.0],
+            ["SIS", 1.0, 1.0, 0.2]
           ]
         },
         {
           "name": "1.5 Acciones Sísmicas",
+          "side": "right",
           "layout_columns": 2,
           "fields": [
             {
@@ -1470,6 +1522,7 @@ def calculate_element(payload: dict) -> SolverResponse:
         },
         {
           "name": "1.6 Coeficientes de Mayoración",
+          "side": "right",
           "layout_columns": 2,
           "fields": [
             {
@@ -1504,6 +1557,7 @@ def calculate_element(payload: dict) -> SolverResponse:
         },
         {
           "name": "1.7 Coeficientes de Seguridad",
+          "side": "right",
           "layout_columns": 2,
           "fields": [
             {
@@ -1554,6 +1608,7 @@ def calculate_element(payload: dict) -> SolverResponse:
       "groups": [
         {
           "name": "1.8 Materiales",
+          "side": "left",
           "layout_columns": 2,
           "fields": [
             {
@@ -1562,41 +1617,13 @@ def calculate_element(payload: dict) -> SolverResponse:
               "type": "select",
               "default": "HA-25",
               "options": [
-                {
-                  "value": "HA-20",
-                  "label": "HA-20",
-                  "fck": 20
-                },
-                {
-                  "value": "HA-25",
-                  "label": "HA-25",
-                  "fck": 25
-                },
-                {
-                  "value": "HA-30",
-                  "label": "HA-30",
-                  "fck": 30
-                },
-                {
-                  "value": "HA-35",
-                  "label": "HA-35",
-                  "fck": 35
-                },
-                {
-                  "value": "HA-40",
-                  "label": "HA-40",
-                  "fck": 40
-                },
-                {
-                  "value": "HA-45",
-                  "label": "HA-45",
-                  "fck": 45
-                },
-                {
-                  "value": "HA-50",
-                  "label": "HA-50",
-                  "fck": 50
-                }
+                { "value": "HA-20", "label": "HA-20", "fck": 20 },
+                { "value": "HA-25", "label": "HA-25", "fck": 25 },
+                { "value": "HA-30", "label": "HA-30", "fck": 30 },
+                { "value": "HA-35", "label": "HA-35", "fck": 35 },
+                { "value": "HA-40", "label": "HA-40", "fck": 40 },
+                { "value": "HA-45", "label": "HA-45", "fck": 45 },
+                { "value": "HA-50", "label": "HA-50", "fck": 50 }
               ]
             },
             {
@@ -1605,26 +1632,10 @@ def calculate_element(payload: dict) -> SolverResponse:
               "type": "select",
               "default": "B 500 S",
               "options": [
-                {
-                  "value": "B 400 S",
-                  "label": "B 400 S",
-                  "fyk": 400
-                },
-                {
-                  "value": "B 500 S",
-                  "label": "B 500 S",
-                  "fyk": 500
-                },
-                {
-                  "value": "B 500 T",
-                  "label": "B 500 T",
-                  "fyk": 500
-                },
-                {
-                  "value": "B 600 S",
-                  "label": "B 600 S",
-                  "fyk": 600
-                }
+                { "value": "B 400 S", "label": "B 400 S", "fyk": 400 },
+                { "value": "B 500 S", "label": "B 500 S", "fyk": 500 },
+                { "value": "B 500 T", "label": "B 500 T", "fyk": 500 },
+                { "value": "B 600 S", "label": "B 600 S", "fyk": 600 }
               ]
             },
             {
@@ -1633,9 +1644,7 @@ def calculate_element(payload: dict) -> SolverResponse:
               "unit": "MPa",
               "type": "derived",
               "formula": "fck_from_select",
-              "depends_on": [
-                "hormigon"
-              ]
+              "depends_on": ["hormigon"]
             },
             {
               "id": "fcd",
@@ -1643,9 +1652,7 @@ def calculate_element(payload: dict) -> SolverResponse:
               "unit": "MPa",
               "type": "derived",
               "formula": "fck / 1.5",
-              "depends_on": [
-                "hormigon"
-              ]
+              "depends_on": ["hormigon"]
             },
             {
               "id": "fyk",
@@ -1653,9 +1660,7 @@ def calculate_element(payload: dict) -> SolverResponse:
               "unit": "MPa",
               "type": "derived",
               "formula": "fyk_from_select",
-              "depends_on": [
-                "acero"
-              ]
+              "depends_on": ["acero"]
             },
             {
               "id": "fyd",
@@ -1663,14 +1668,13 @@ def calculate_element(payload: dict) -> SolverResponse:
               "unit": "MPa",
               "type": "derived",
               "formula": "fyk / 1.15",
-              "depends_on": [
-                "acero"
-              ]
+              "depends_on": ["acero"]
             }
           ]
         },
         {
           "name": "2. Comprobación de Estabilidad — Parámetros Coulomb",
+          "side": "right",
           "layout_columns": 2,
           "fields": [
             {
@@ -2335,76 +2339,83 @@ def generic_form_page() -> rx.Component:
 
     return main_layout(
         rx.cond(
-            config.page_layout.type == "split_tabs",
+            # Cambiamos la condición para que sea más flexible
+            (config.page_layout.type == "split_tabs") | (config.has_tabs),
             split_tabs_page_content(config),
             standard_page_content(config),
-        )
+        ),
+        state_class=BaseState,
     )
 ```
 
 ### Archivo: ./structural_app\shared\components\generic_page_split_tabs.py
 ```python
+# generic_page_split_tabs.py
 import reflex as rx
-
-from structural_app.core.base_state import BaseState
-from structural_app.shared.components.form_renderer import (
-    render_form_header,
-    render_tab_content,
-)
-from structural_app.shared.components.result_cards import results_panel
+from ...core.base_state import BaseState
+from .form_renderer import _render_element
 
 
-def _tab_panel(config, default_tab: str) -> rx.Component:
-    return rx.card(
-        rx.tabs.root(
-            rx.tabs.list(
-                rx.foreach(
-                    config.tabs,
-                    lambda tab: rx.tabs.trigger(
-                        tab.label,
-                        value=tab.id,
-                        style={
-                            "font_size": "12px",
-                            "padding": "6px 12px",
-                        },
-                    ),
+def _tab_nav_bar(config) -> rx.Component:
+    """Barra de botones compartida para cambiar de tab."""
+    return rx.hstack(
+        rx.foreach(
+            config.tabs,
+            lambda tab: rx.button(
+                tab.label,
+                on_click=BaseState.set_active_tab(tab.id),
+                variant=rx.cond(
+                    BaseState.left_active_tab == tab.id,
+                    "solid",
+                    "soft",
                 ),
-                style={
-                    "border_bottom": "2px solid rgb(0,50,100)",
-                    "width": "100%",
-                },
+                color_scheme="blue",
+                size="2",
+                cursor="pointer",
+                style={"font_size": "12px"},
             ),
-            rx.foreach(
-                config.tabs,
-                lambda tab: rx.tabs.content(
-                    render_tab_content(tab, BaseState),
-                    value=tab.id,
-                ),
-            ),
-            default_value=default_tab,
-            width="100%",
         ),
+        spacing="2",
+        padding_y="8px",
         width="100%",
-        padding="3",
+        flex_wrap="wrap",
     )
 
 
-def split_tabs_page_content(config) -> rx.Component:
+def split_tabs_page_content(config):
     return rx.vstack(
-        render_form_header(config),
+        _tab_nav_bar(config),
+        rx.divider(),
 
-        rx.grid(
-            _tab_panel(config, "tab_geometria"),
-            _tab_panel(config, "tab_acciones"),
-            columns={
-                "initial": "1",
-                "lg": "2",
-            },
-            spacing="4",
+        rx.hstack(
+            # COLUMNA IZQUIERDA
+            rx.vstack(
+                rx.foreach(
+                    BaseState.left_column_groups,
+                    lambda g: _render_element(g, BaseState),
+                ),
+                width="50%",
+                spacing="4",
+                align_items="stretch",
+            ),
+
+            # COLUMNA DERECHA
+            rx.vstack(
+                rx.foreach(
+                    BaseState.right_column_groups,
+                    lambda g: _render_element(g, BaseState),
+                ),
+                width="50%",
+                spacing="4",
+                align_items="stretch",
+            ),
             width="100%",
+            padding="4",
+            spacing="6",
             align_items="start",
         ),
 
+        # BOTÓN CALCULAR
         rx.button(
             rx.hstack(
                 rx.icon("calculator", size=16),
@@ -2416,20 +2427,19 @@ def split_tabs_page_content(config) -> rx.Component:
             loading=BaseState.is_calculating,
             width="100%",
             size="2",
-            color_scheme="blue",
-            margin_top="4",
-        ),
-
-        rx.divider(),
-
-        rx.box(
-            results_panel(BaseState),
-            width="100%",
+            style={
+                "background": "rgb(0,50,100)",
+                "color": "white",
+                "font_weight": "700",
+                "letter_spacing": "0.08em",
+                "margin_top": "8px",
+                "border_radius": "4px",
+                "_hover": {"background": "rgb(0,70,140)"},
+            },
         ),
 
         width="100%",
-        spacing="4",
-        padding="4",
+        spacing="0",
     )
 ```
 
@@ -3396,13 +3406,13 @@ def form_toolbar(state_class: rx.State, upload_id: str = "upload_json"):
                 rx.menu.content(
                     rx.menu.item(
                         "Exportar a Excel (.xlsx)", 
-                        on_click=state_class.export_excel,
+                        on_click=state_class.export_excel_to_server,
                         cursor="pointer"
                     ),
                     rx.menu.separator(),
                     rx.menu.item(
                         "Exportar a PDF", 
-                        on_click=state_class.export_pdf,
+                        on_click=state_class.export_pdf_to_server,
                         cursor="pointer"
                     ),
                 ),

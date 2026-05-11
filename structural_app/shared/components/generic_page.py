@@ -11,7 +11,8 @@ def generic_form_page() -> rx.Component:
 
     return main_layout(
         rx.cond(
-            config.page_layout.type == "split_tabs",
+            # Cambiamos la condición para que sea más flexible
+            (config.page_layout.type == "split_tabs") | (config.has_tabs),
             split_tabs_page_content(config),
             standard_page_content(config),
         ),

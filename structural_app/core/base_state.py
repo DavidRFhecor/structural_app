@@ -40,6 +40,7 @@ class FormField(BaseModel):
 class FormElement(BaseModel):
     """Representa tanto un grupo de campos como una tabla."""
     type: str = "group"
+    side: str = "left"
     name: str = ""
     fields: List[FormField] = []
 
@@ -75,7 +76,7 @@ class FormConfig(BaseModel):
         "sketch": False,
     }
     page_layout: PageLayoutConfig = PageLayoutConfig()
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------left_column-------------
 # Estado Base
 # ---------------------------------------------------------------------------
 class BaseState(rx.State):
@@ -103,6 +104,34 @@ class BaseState(rx.State):
     excel_filename: str = "reporte_calculo.xlsx"
     is_excel_dialog_open: bool = False
 
+
+
+    @rx.event
+    def set_active_tab(self, tab_id: str):
+        self.left_active_tab = tab_id
+        self.right_active_tab = tab_id
+
+    @rx.var
+    def left_column_groups(self) -> List[FormElement]:
+        if not self.active_form_config or not self.left_active_tab:
+            return []
+        active_tab = next(
+            (t for t in self.active_form_config.tabs if t.id == self.left_active_tab), None
+        )
+        if not active_tab:
+            return []
+        return [g for g in active_tab.groups if g.side == "left"]
+
+    @rx.var
+    def right_column_groups(self) -> List[FormElement]:
+        if not self.active_form_config or not self.left_active_tab:
+            return []
+        active_tab = next(
+            (t for t in self.active_form_config.tabs if t.id == self.left_active_tab), None
+        )
+        if not active_tab:
+            return []
+        return [g for g in active_tab.groups if g.side == "right"]
 
 
     @rx.event
@@ -174,7 +203,7 @@ class BaseState(rx.State):
             right_default = next((tab_id for tab_id in tab_ids if tab_id != left_default), "")
 
         self.left_active_tab = left_default
-        self.right_active_tab = right_default
+        self.right_active_tab = left_default
 
         new_data = {}
         # Determinar fuente de grupos: tabs o legacy
@@ -285,6 +314,7 @@ class BaseState(rx.State):
         config_dict = FORM_REGISTRY.get(self.current_form_key, {})
         payload = ExportPayloadService.create_report_data(config_dict, self)
         return PDFExportProvider.save_pdf_to_server(payload, self.save_path, self.pdf_filename)
+
 
     @rx.event
     def open_excel_dialog(self):

@@ -88,13 +88,13 @@ def form_toolbar(state_class: rx.State, upload_id: str = "upload_json"):
                 rx.menu.content(
                     rx.menu.item(
                         "Exportar a Excel (.xlsx)", 
-                        on_click=state_class.export_excel,
+                        on_click=state_class.export_excel_to_server,
                         cursor="pointer"
                     ),
                     rx.menu.separator(),
                     rx.menu.item(
                         "Exportar a PDF", 
-                        on_click=state_class.export_pdf,
+                        on_click=state_class.export_pdf_to_server,
                         cursor="pointer"
                     ),
                 ),

@@ -1,81 +1,66 @@
+# generic_page_split_tabs.py
 import reflex as rx
-
-from structural_app.core.base_state import BaseState
-from structural_app.shared.components.form_renderer import (
-    render_form_header,
-    render_tab_content,
-)
-from structural_app.shared.components.result_cards import results_panel
+from ...core.base_state import BaseState
+from .form_renderer import _render_element
+from .result_cards import results_panel  # ← añadir import
 
 
-def _tab_panel(
-    config,
-    active_tab,
-    disabled_tab,
-    on_change,
-) -> rx.Component:
-    return rx.card(
-        rx.tabs.root(
-            rx.tabs.list(
-                rx.foreach(
-                    config.tabs,
-                    lambda tab: rx.tabs.trigger(
-                        tab.label,
-                        value=tab.id,
-                        disabled=tab.id == disabled_tab,
-                        style={
-                            "font_size": "12px",
-                            "padding": "6px 12px",
-                        },
-                    ),
+def _tab_nav_bar(config) -> rx.Component:
+    return rx.hstack(
+        rx.foreach(
+            config.tabs,
+            lambda tab: rx.button(
+                tab.label,
+                on_click=BaseState.set_active_tab(tab.id),
+                variant=rx.cond(
+                    BaseState.left_active_tab == tab.id,
+                    "solid",
+                    "soft",
                 ),
-                style={
-                    "border_bottom": "2px solid rgb(0,50,100)",
-                    "width": "100%",
-                },
+                color_scheme="blue",
+                size="2",
+                cursor="pointer",
+                style={"font_size": "12px"},
             ),
-            rx.foreach(
-                config.tabs,
-                lambda tab: rx.tabs.content(
-                    render_tab_content(tab, BaseState),
-                    value=tab.id,
-                ),
-            ),
-            value=active_tab,
-            on_change=on_change,
-            width="100%",
         ),
+        spacing="2",
+        padding_y="8px",
         width="100%",
-        padding="3",
+        flex_wrap="wrap",
     )
 
 
-def split_tabs_page_content(config) -> rx.Component:
+def split_tabs_page_content(config):
     return rx.vstack(
-        render_form_header(config),
+        _tab_nav_bar(config),
+        rx.divider(),
 
-        rx.grid(
-            _tab_panel(
-                config=config,
-                active_tab=BaseState.left_active_tab,
-                disabled_tab=BaseState.right_active_tab,
-                on_change=BaseState.set_left_active_tab,
+        rx.hstack(
+            rx.vstack(
+                rx.foreach(
+                    BaseState.left_column_groups,
+                    lambda g: _render_element(g, BaseState),
+                ),
+                width="50%",
+                spacing="4",
+                align_items="stretch",
             ),
-            _tab_panel(
-                config=config,
-                active_tab=BaseState.right_active_tab,
-                disabled_tab=BaseState.left_active_tab,
-                on_change=BaseState.set_right_active_tab,
+            rx.vstack(
+                rx.foreach(
+                    BaseState.right_column_groups,
+                    lambda g: _render_element(g, BaseState),
+                ),
+                width="50%",
+                spacing="4",
+                align_items="stretch",
             ),
-            columns={
-                "initial": "1",
-                "lg": "2",
-            },
-            spacing="4",
             width="100%",
+            padding="4",
+            spacing="6",
             align_items="start",
         ),
 
+        # BOTÓN CALCULAR
         rx.button(
             rx.hstack(
                 rx.icon("calculator", size=16),
@@ -87,18 +72,26 @@ def split_tabs_page_content(config) -> rx.Component:
             loading=BaseState.is_calculating,
             width="100%",
             size="2",
-            color_scheme="blue",
-            margin_top="4",
+            style={
+                "background": "rgb(0,50,100)",
+                "color": "white",
+                "font_weight": "700",
+                "letter_spacing": "0.08em",
+                "margin_top": "8px",
+                "border_radius": "4px",
+                "_hover": {"background": "rgb(0,70,140)"},
+            },
         ),
 
-        rx.divider(),
+        rx.divider(),  # ← separador antes de resultados
 
+        # PANEL DE RESULTADOS  ← esto faltaba
         rx.box(
             results_panel(BaseState),
             width="100%",
+            padding="4",
         ),
 
         width="100%",
         spacing="4",
-        padding="4",
     )

@@ -222,38 +222,55 @@ def _render_group(group: rx.Var, state_ptr) -> rx.Component:
 # ============================================================================
 # Tabla editable
 # ============================================================================
+def _table_controls(table_id: str, state_ptr) -> rx.Component:
+    """Botones de añadir y eliminar fila."""
+    return rx.hstack(
+        rx.button(
+            rx.icon("plus", size=14),
+            "Añadir fila",
+            on_click=state_ptr.add_table_row(table_id),
+            size="1",
+            variant="soft",
+            color_scheme="blue",
+        ),
+        rx.button(
+            rx.icon("minus", size=14),
+            "Eliminar última",
+            on_click=state_ptr.remove_table_row(table_id),
+            size="1",
+            variant="soft",
+            color_scheme="red",
+        ),
+        spacing="2",
+        justify="end",
+        width="100%",
+        padding_x="2",
+        padding_bottom="2",
+    )
 
 def _render_data_table(element: rx.Var, state_ptr) -> rx.Component:
+    table_id = element["id"].to(str)
+
+    # Extraer títulos de columna del config en tiempo de compilación
+    # element["columns"] es un Var, no iterable en Python — usamos el id
+    # para mapear los headers conocidos
     return rx.vstack(
         rx.box(rx.text(element["title"], **SECTION_HEADER_STYLE), width="100%"),
         rx.box(
             rx.cond(
                 element["id"] == "tabla_estratos",
                 custom_data_table(
-                    matrix_data=state_ptr.form_data["tabla_estratos"],
-                    columns=[
-                        {"title": "Espesor", "type": "float"},
-                        {"title": "γ", "type": "float"},
-                        {"title": "φ", "type": "float"},
-                    ],
-                    rows=2,
                     table_id="tabla_estratos",
+                    col_headers=["Espesor (m)", "γ (kN/m³)", "φ (°)"],
                 ),
                 rx.cond(
                     element["id"] == "tabla_combinaciones",
                     custom_data_table(
-                        matrix_data=state_ptr.form_data["tabla_combinaciones"],
-                        columns=[
-                            {"title": "Caso", "type": "str"},
-                            {"title": "γG", "type": "float"},
-                            {"title": "γQ", "type": "float"},
-                            {"title": "ψ", "type": "float"},
-                        ],
-                        rows=2,
                         table_id="tabla_combinaciones",
+                        col_headers=["Caso", "γG", "γQ", "ψ"],
                     ),
                     rx.callout(
-                        "Tabla no configurada para renderizado estático.",
+                        "Tabla no configurada.",
                         icon="info",
                         color_scheme="gray",
                     ),

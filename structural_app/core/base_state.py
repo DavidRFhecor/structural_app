@@ -89,6 +89,7 @@ class BaseState(rx.State):
     last_calculation_hash: str = ""
     search_query: str = ""
     form_data: Dict[str, Any] = {}
+    table_data: Dict[str, List[List[Any]]] = {}
     results: SolverResponse = SolverResponse(is_ok=True, checks=[], summary="Esperando datos...")
     show_theory_popup: bool = False
 
@@ -271,6 +272,8 @@ class BaseState(rx.State):
 
         # Inicializar form_data
         new_data = {}
+        new_table_data = {}
+
         if "tabs" in config:
             sources = [g for tab in config["tabs"] for g in tab.get("groups", [])]
         else:
@@ -282,9 +285,9 @@ class BaseState(rx.State):
             if elem_type == "data_table":
                 table_id = element.get("id") or element.get("name")
                 if table_id:
-                    new_data[table_id] = element.get(
+                    new_table_data[table_id] = element.get(
                         "default_rows",
-                        [["" for _ in range(3)] for _ in range(5)],
+                        [[0.0 for _ in range(len(element.get("columns", [])))] for _ in range(2)],
                     )
             else:
                 for f in element.get("fields", []):
@@ -307,6 +310,7 @@ class BaseState(rx.State):
                     elif field_type == "info_label":
                         new_data[field_id] = ""
 
+        self.table_data = new_table_data
         self.form_data = new_data
         yield
 
@@ -316,10 +320,31 @@ class BaseState(rx.State):
     @rx.event
     def update_table_cell(self, table_id: str, pos: tuple[int, int], value: str):
         row, col = pos
+        new_table_data = self.table_data.copy()
+        table = [r[:] for r in new_table_data.get(table_id, [])]
         try:
-            self.form_data[table_id][row][col] = float(value)
-        except ValueError:
-            pass
+            table[row][col] = float(value)
+        except (ValueError, TypeError):
+            table[row][col] = value
+        new_table_data[table_id] = table
+        self.table_data = new_table_data
+
+    @rx.event
+    def add_table_row(self, table_id: str):
+        new_table_data = self.table_data.copy()
+        table = [r[:] for r in new_table_data.get(table_id, [])]
+        empty_row = table[-1][:] if table else [1.0, 18.0, 30.0]
+        new_table_data[table_id] = table + [empty_row]
+        self.table_data = new_table_data
+
+    @rx.event
+    def remove_table_row(self, table_id: str):
+        new_table_data = self.table_data.copy()
+        table = [r[:] for r in new_table_data.get(table_id, [])]
+        if len(table) <= 1:
+            return
+        new_table_data[table_id] = table[:-1]
+        self.table_data = new_table_data
 
     @rx.event
     def set_value(self, field: str, value: str):
@@ -355,6 +380,7 @@ class BaseState(rx.State):
 
         self.last_calculation_hash = current_hash
         payload = self.form_data.copy()
+        payload.update(self.table_data)          
         payload["_features"] = self.active_form_config.features
         self.results = SolverDispatcher.dispatch_calculation(
             self.current_form_key,
@@ -581,6 +607,10 @@ class BaseState(rx.State):
         )
         self.last_calculation_hash = ""
         yield
+
+    @rx.event
+    def set_show_theory_popup(self, value: bool):
+        self.show_theory_popup = value
 
     def reset_form(self):
         return rx.call_script("window.location.reload();")

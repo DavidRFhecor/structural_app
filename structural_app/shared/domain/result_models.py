@@ -3,13 +3,14 @@ import reflex as rx
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from plotly.graph_objs import Figure
+from typing import List, Optional, Dict, Any
 
-class CheckResult(rx.Base): 
-    description: str
-    status: bool
-    value: float
-    limit: float
-    unit: str
+class CheckResult(BaseModel):
+    description: str = ""
+    status: bool = True
+    value: float = 0.0
+    limit: float = 0.0
+    unit: str = ""
     ratio: float = 0.0
     reference: str = ""
 
@@ -31,7 +32,7 @@ class IntermediateTable(BaseModel):
     note: str = ""
 
 
-class ScenarioResult(rx.Base): 
+class ScenarioResult(BaseModel): 
     label: str
     checks: List[CheckResult] = []
     is_ok: bool = True
@@ -61,13 +62,14 @@ class MeasurementResult(BaseModel):
     currency: str = "€"
 
 
-class SolverResponse(rx.Base): 
+class SolverResponse(BaseModel):
     is_ok: bool = True
     summary: str = ""
     checks: List[CheckResult] = []
-    scenarios: Dict[str, ScenarioResult] = {} 
-    intermediate_tables: List[IntermediateTable] = []
-    material_results: MaterialResult = MaterialResult()
-    measurements: MeasurementResult = MeasurementResult()
+    plot_data: Optional[Dict[str, Any]] = None
+    form_data_updates: Optional[Dict[str, Any]] = None
     warnings: List[str] = []
-    plot_data: Optional[Figure] = None
+    material_results: Optional[MaterialResult] = None
+    scenarios: Dict[str, ScenarioResult] = {}
+    intermediate_tables: List[IntermediateTable] = []
+    measurements: Optional[MeasurementResult] = None

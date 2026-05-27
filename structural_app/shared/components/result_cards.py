@@ -7,7 +7,7 @@ from reflex.state import BaseState
 # ---------------------------------------------------------------------------
 
 def _ratio_bar(ratio: rx.Var) -> rx.Component:
-    pct = rx.cond(ratio > 1.0, "100%", (ratio * 100).to(str) + "%")
+    pct = (ratio * 100).to(str) + "%"
     color = rx.cond(ratio >= 1.0, "var(--green-9)", "var(--red-9)")
     return rx.box(
         rx.box(

@@ -217,15 +217,15 @@
           ]
         },
         {
-          "id": "estratos",
+          "id": "tabla_estratos",
           "type": "data_table",
           "name": "Estratos del terreno",
           "column": 2,
           "title": "Estratos del terreno",
           "columns": [
-            { "title": "Espesor", "type": "float" },
-            { "title": "γ",       "type": "float" },
-            { "title": "φ",       "type": "float" }
+            { "id": "espesor", "title": "Espesor (m)",  "type": "float" },
+            { "id": "gamma",   "title": "γ (kN/m³)",    "type": "float" },
+            { "id": "phi",     "title": "φ (°)",         "type": "float" }
           ],
           "default_rows": [
             [1.0, 18.0, 30.0],
@@ -318,16 +318,16 @@
           ]
         },
         {
-          "id": "combinaciones",
+          "id": "tabla_combinaciones",
           "type": "data_table",
           "name": "Combinaciones de acciones",
           "column": 1,
           "title": "Combinaciones de acciones",
           "columns": [
-            { "title": "Caso", "type": "str"   },
-            { "title": "γG",   "type": "float" },
-            { "title": "γQ",   "type": "float" },
-            { "title": "ψ",    "type": "float" }
+            { "id": "caso", "title": "Caso",  "type": "str"   },
+            { "id": "gG",   "title": "γG",    "type": "float" },
+            { "id": "gQ",   "title": "γQ",    "type": "float" },
+            { "id": "psi",  "title": "ψ",     "type": "float" }
           ],
           "default_rows": [
             ["EST", 1.35, 1.5, 1.0],

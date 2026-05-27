@@ -133,6 +133,7 @@ def calculate_element(payload: dict) -> SolverResponse:
             cols = ["espesor", "gamma", "phi"]
             payload["tabla_estratos"] = [
                 dict(zip(cols, fila)) for fila in payload["tabla_estratos"]
+                if float(fila[0]) > 0 and float(fila[1]) > 0  # ← filtrar filas vacías
             ]
 
     # Filtrar solo los campos que MuroInput conoce
@@ -291,7 +292,7 @@ def calculate_element(payload: dict) -> SolverResponse:
             description="Tensión máx. en terreno",
             status=sig_kgcm2 <= data.sigma_adm_est,
             value=round(sig_kgcm2, 3), limit=data.sigma_adm_est, unit="kg/cm²",
-            ratio=round(sig_kgcm2 / data.sigma_adm_est, 3),
+            ratio=round(data.sigma_adm_est / sig_kgcm2, 3) if sig_kgcm2 > 0 else 99.0,
             reference="EC7 §6.5.2",
         ))
 
@@ -312,28 +313,6 @@ def calculate_element(payload: dict) -> SolverResponse:
         "Estático (con SC)": ScenarioResult(label="Estático (con SC)", checks=checks_sc,   is_ok=ok_sc),
         "Estático (sin SC)": ScenarioResult(label="Estático (sin SC)", checks=checks_nosc, is_ok=ok_nosc),
     }
-
-    # ── 5. Mediciones ──────────────────────────────────────────────────────
-    vol_alz  = e_media_alzado * data.h_muro
-    vol_zap  = b_zapata * h_zapata
-    kg_acero = (vol_alz + vol_zap) * 80.0
-    p_horm, p_acero = 85.0, 0.90
-
-    measurements = MeasurementResult(
-        lines=[
-            MeasurementLine(description="Hormigón alzado",
-                quantity=round(vol_alz, 3), unit="m³/m",
-                unit_price=p_horm, total=round(vol_alz * p_horm, 2)),
-            MeasurementLine(description="Hormigón zapata",
-                quantity=round(vol_zap, 3), unit="m³/m",
-                unit_price=p_horm, total=round(vol_zap * p_horm, 2)),
-            MeasurementLine(description="Acero (estimación 80 kg/m³)",
-                quantity=round(kg_acero, 1), unit="kg/m",
-                unit_price=p_acero, total=round(kg_acero * p_acero, 2)),
-        ],
-        grand_total=round((vol_alz + vol_zap) * p_horm + kg_acero * p_acero, 2),
-        currency="€",
-    )
 
     # ── 6. Avisos ──────────────────────────────────────────────────────────
     warnings = []
@@ -369,7 +348,7 @@ def calculate_element(payload: dict) -> SolverResponse:
         scenarios=scenarios,
         intermediate_tables=[tabla_empujes],
         material_results=material_results,
-        measurements=measurements,
+        measurements=None,
         warnings=warnings,
         form_data_updates=intermedios,  # ← ka_val, kp_val, b_zapata, geo_status
     )

@@ -22,7 +22,7 @@ class SolverDispatcher:
                 if hasattr(adapter, "calculate_element"):
                     return adapter.calculate_element(payload)
             except Exception as e:
-                print(f"Aviso: Adaptador falló ({e}). Usando modo automático...")
+                return SolverResponse(is_ok=False, summary=f"Error en adapter: {e}", checks=[])
 
         # 2. Motor Automático Universal (Cero código en el formulario)
         return SolverDispatcher.execute_auto_logic(config, norm_v, payload)

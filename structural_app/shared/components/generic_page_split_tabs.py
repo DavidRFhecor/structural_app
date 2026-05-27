@@ -2,9 +2,12 @@
 import reflex as rx
 from ...core.base_state import BaseState
 from .form_renderer import _render_element
-from .result_cards import results_panel  # ← añadir import
+from .result_cards import results_panel
 
 
+# ---------------------------------------------------------------------------
+# Barra superior de TABS (1. Geometría / 2. Relleno / etc.)
+# ---------------------------------------------------------------------------
 def _tab_nav_bar(config) -> rx.Component:
     return rx.hstack(
         rx.foreach(
@@ -13,7 +16,7 @@ def _tab_nav_bar(config) -> rx.Component:
                 tab.label,
                 on_click=BaseState.set_active_tab(tab.id),
                 variant=rx.cond(
-                    BaseState.left_active_tab == tab.id,
+                    BaseState.active_tab == tab.id,
                     "solid",
                     "soft",
                 ),
@@ -30,37 +33,86 @@ def _tab_nav_bar(config) -> rx.Component:
     )
 
 
-def split_tabs_page_content(config):
-    return rx.vstack(
-        _tab_nav_bar(config),
-        rx.divider(),
-
-        rx.hstack(
-            rx.vstack(
-                rx.foreach(
-                    BaseState.left_column_groups,
-                    lambda g: _render_element(g, BaseState),
+# ---------------------------------------------------------------------------
+# Barra de GRUPOS del tab activo (dentro de cada columna)
+# Muestra todos los grupos del tab; al pulsar uno lo activa en su columna.
+# ---------------------------------------------------------------------------
+def _group_nav_bar() -> rx.Component:
+    return rx.hstack(
+        rx.foreach(
+            BaseState.toolbar_groups,
+            lambda group: rx.button(
+                group.name,
+                on_click=BaseState.set_active_group(group.column, group.id),
+                variant=rx.cond(
+                    BaseState.active_group_per_column.get(
+                        "col_" + group.column.to_string()
+                    ) == group.id,
+                    "solid",
+                    "outline",
                 ),
-                width="50%",
-                spacing="4",
-                align_items="stretch",
+                color_scheme="gray",
+                size="1",
+                cursor="pointer",
+                style={"font_size": "11px"},
             ),
-            rx.vstack(
-                rx.foreach(
-                    BaseState.right_column_groups,
-                    lambda g: _render_element(g, BaseState),
+        ),
+        spacing="1",
+        padding_y="4px",
+        width="100%",
+        flex_wrap="wrap",
+        border_bottom="1px solid #e5e7eb",
+        padding_bottom="6px",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Columna individual — renderiza el grupo visible de esa columna
+# ---------------------------------------------------------------------------
+def _column(col_groups: list[rx.Var], width: str) -> rx.Component:
+    return rx.vstack(
+        rx.foreach(
+            col_groups,
+            lambda g: _render_element(g, BaseState),
+        ),
+        width=width,
+        spacing="4",
+        align_items="stretch",
+        min_width="0",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Layout principal
+# ---------------------------------------------------------------------------
+def split_tabs_page_content(config) -> rx.Component:
+    return rx.vstack(
+        # Barra de tabs (1. Geometría, 2. Relleno…)
+        _tab_nav_bar(config),
+
+        # Columnas de contenido — 2 columnas (extensible a 3 con num_columns=3)
+        rx.hstack(
+            rx.foreach(
+                BaseState.columns_groups,
+                lambda col_groups: rx.vstack(
+                    rx.foreach(
+                        col_groups,
+                        lambda g: _render_element(g, BaseState),
+                    ),
+                    width=f"100%",
+                    spacing="4",
+                    align_items="stretch",
+                    min_width="0",
+                    flex="1",
                 ),
-                width="50%",
-                spacing="4",
-                align_items="stretch",
             ),
             width="100%",
-            padding="4",
+            padding_x="4",
             spacing="6",
             align_items="start",
         ),
 
-        # BOTÓN CALCULAR
+        # Botón CALCULAR
         rx.button(
             rx.hstack(
                 rx.icon("calculator", size=16),
@@ -83,9 +135,9 @@ def split_tabs_page_content(config):
             },
         ),
 
-        rx.divider(),  # ← separador antes de resultados
+        rx.divider(),
 
-        # PANEL DE RESULTADOS  ← esto faltaba
+        # Panel de resultados
         rx.box(
             results_panel(BaseState),
             width="100%",
@@ -93,5 +145,6 @@ def split_tabs_page_content(config):
         ),
 
         width="100%",
-        spacing="4",
+        spacing="0",
+        padding="4",
     )

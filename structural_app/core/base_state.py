@@ -11,7 +11,7 @@ from structural_app.shared.infrastructure.pdf_export import PDFExportProvider
 
 
 # ---------------------------------------------------------------------------
-# Modelos auxiliares — FormConfig AMPLIADO con tabs, tablas y page_layout
+# Modelos auxiliares
 # ---------------------------------------------------------------------------
 
 class BookReference(BaseModel):
@@ -41,11 +41,10 @@ class FormElement(BaseModel):
     """Representa tanto un grupo de campos como una tabla."""
     type: str = "group"
     side: str = "left"
+    column: int = 1          # ← columna a la que pertenece (1-based)
+    id: str = ""
     name: str = ""
     fields: List[FormField] = []
-
-    # Campos específicos para data_table
-    id: str = ""
     title: str = ""
     columns: List[Dict[str, Any]] = []
     default_rows: List[List[Any]] = []
@@ -54,12 +53,15 @@ class FormElement(BaseModel):
 class FormTab(BaseModel):
     id: str = ""
     label: str = ""
+    num_columns: int = 2     # ← número de columnas del tab (default 2)
     groups: List[FormElement] = []
+
 
 class PageLayoutConfig(BaseModel):
     type: str = "standard"
     left_default_tab: str = ""
     right_default_tab: str = ""
+
 
 class FormConfig(BaseModel):
     form_key: str = ""
@@ -76,7 +78,9 @@ class FormConfig(BaseModel):
         "sketch": False,
     }
     page_layout: PageLayoutConfig = PageLayoutConfig()
-# --------------------------------------------------------------left_column-------------
+
+
+# ---------------------------------------------------------------------------
 # Estado Base
 # ---------------------------------------------------------------------------
 class BaseState(rx.State):
@@ -87,8 +91,13 @@ class BaseState(rx.State):
     form_data: Dict[str, Any] = {}
     results: SolverResponse = SolverResponse(is_ok=True, checks=[], summary="Esperando datos...")
     show_theory_popup: bool = False
-    left_active_tab: str = ""
-    right_active_tab: str = ""
+
+    # Tab activo (único, ambas columnas comparten tab)
+    active_tab: str = ""
+
+    # Grupo activo por columna: clave = "col_{N}", valor = group_id
+    # Ej: {"col_1": "geo_muro", "col_2": "geo_zapata"}
+    active_group_per_column: Dict[str, str] = {}
 
     # Gestión de Archivos de Sesión (JSON)
     save_filename: str = "proyecto_calculo.json"
@@ -104,62 +113,114 @@ class BaseState(rx.State):
     excel_filename: str = "reporte_calculo.xlsx"
     is_excel_dialog_open: bool = False
 
-
-
+    # -----------------------------------------------------------------------
+    # Navegación de tabs
+    # -----------------------------------------------------------------------
     @rx.event
     def set_active_tab(self, tab_id: str):
-        self.left_active_tab = tab_id
-        self.right_active_tab = tab_id
+        """Cambia el tab activo y resetea el grupo activo de cada columna
+        al primer grupo de esa columna en el nuevo tab."""
+        self.active_tab = tab_id
 
-    @rx.var
-    def left_column_groups(self) -> List[FormElement]:
-        if not self.active_form_config or not self.left_active_tab:
-            return []
-        active_tab = next(
-            (t for t in self.active_form_config.tabs if t.id == self.left_active_tab), None
-        )
-        if not active_tab:
-            return []
-        return [g for g in active_tab.groups if g.side == "left"]
+        config = FORM_REGISTRY.get(self.current_form_key, {})
+        tab = next((t for t in config.get("tabs", []) if t.get("id") == tab_id), None)
+        if not tab:
+            return
 
-    @rx.var
-    def right_column_groups(self) -> List[FormElement]:
-        if not self.active_form_config or not self.left_active_tab:
-            return []
-        active_tab = next(
-            (t for t in self.active_form_config.tabs if t.id == self.left_active_tab), None
-        )
-        if not active_tab:
-            return []
-        return [g for g in active_tab.groups if g.side == "right"]
+        num_columns = tab.get("num_columns", tab.get("columns", 2))
+        groups = tab.get("groups", [])
 
+        new_active = {}
+        for col in range(1, num_columns + 1):
+            col_key = f"col_{col}"
+            # Primer grupo de esta columna
+            first = next(
+                (g for g in groups if g.get("column", 1) == col and g.get("id")),
+                None,
+            )
+            if first:
+                new_active[col_key] = first["id"]
+
+        self.active_group_per_column = new_active
 
     @rx.event
-    def set_left_active_tab(self, tab_id: str):
-        if tab_id == self.right_active_tab:
-            return
-        self.left_active_tab = tab_id
+    def set_active_group(self, col: int, group_id: str):
+        """Muestra solo el grupo group_id en la columna col."""
+        new_active = self.active_group_per_column.copy()
+        new_active[f"col_{col}"] = group_id
+        self.active_group_per_column = new_active
 
+    # -----------------------------------------------------------------------
+    # Vars computados — grupos visibles por columna
+    # -----------------------------------------------------------------------
+    @rx.var
+    def active_tab_data(self) -> FormTab:
+        """Devuelve el FormTab activo completo."""
+        if not self.active_form_config or not self.active_tab:
+            return FormTab()
+        return next(
+            (t for t in self.active_form_config.tabs if t.id == self.active_tab),
+            FormTab(),
+        )
+    @rx.var
+    def columns_groups(self) -> List[List[FormElement]]:
+        """Devuelve una lista de listas: una por columna."""
+        tab = self.active_tab_data
+        if not tab or not tab.groups:
+            return []
+        num_cols = tab.num_columns or 2
+        result = []
+        for col in range(1, num_cols + 1):
+            result.append([g for g in tab.groups if g.column == col])
+        return result
 
-    @rx.event
-    def set_right_active_tab(self, tab_id: str):
-        if tab_id == self.left_active_tab:
-            return
-        self.right_active_tab = tab_id
+    def _visible_groups_for_column(self, col: int) -> List[FormElement]:
+        tab = self.active_tab_data
+        if not tab or not tab.groups:
+            return []
+        # Devolver TODOS los grupos de la columna, no solo el activo
+        return [g for g in tab.groups if g.column == col]
 
+    @rx.var
+    def num_columns(self) -> int:
+        tab = self.active_tab_data
+        return tab.num_columns if tab else 2
+
+    # -----------------------------------------------------------------------
+    # Barra de grupos — todos los grupos del tab activo para la toolbar
+    # -----------------------------------------------------------------------
+    @rx.var
+    def toolbar_groups(self) -> List[FormElement]:
+        """Todos los grupos del tab activo (para la barra superior)."""
+        tab = self.active_tab_data
+        if not tab:
+            return []
+        return [g for g in tab.groups if g.id]
+
+    # -----------------------------------------------------------------------
+    # Compatibilidad legacy (left/right) — mantener por si acaso
+    # -----------------------------------------------------------------------
+    @rx.var
+    def left_active_tab(self) -> str:
+        return self.active_tab
+
+    @rx.var
+    def right_active_tab(self) -> str:
+        return self.active_tab
+
+    # -----------------------------------------------------------------------
+    # Teoría
+    # -----------------------------------------------------------------------
     def toggle_theory(self):
         self.show_theory_popup = not self.show_theory_popup
 
     @rx.var
     def current_theory_content(self) -> str:
-        """Retorna el contenido de teoría asegurando siempre un string."""
         if not self.active_form_config:
             return ""
-        
-        # Usamos getattr por seguridad y nos aseguramos de devolver str
         content = getattr(self.active_form_config, "extended_info", "")
         return content if content is not None else ""
-        
+
     @rx.var
     def plot_fig(self) -> go.Figure:
         if self.results and self.results.plot_data:
@@ -169,50 +230,49 @@ class BaseState(rx.State):
         return fig
 
     # -----------------------------------------------------------------------
-    # set_current_form — soporta tabs (nueva) y groups (legacy)
+    # set_current_form
     # -----------------------------------------------------------------------
     @rx.event
     async def set_current_form(self, key: str):
         self.current_form_key = ""
         self.results = SolverResponse(
-            is_ok=False,
-            checks=[],
-            summary="Cargando...",
-            plot_data=None,
+            is_ok=False, checks=[], summary="Pulse Calcular", plot_data=None,
         )
         self.form_data = {}
         self.last_calculation_hash = ""
-        self.left_active_tab = ""
-        self.right_active_tab = ""
+        self.active_tab = ""
+        self.active_group_per_column = {}
         yield
 
         self.current_form_key = key
         config = FORM_REGISTRY.get(key, {})
 
-        layout_cfg = config.get("page_layout", {})
         tabs = config.get("tabs", [])
-        tab_ids = [tab.get("id", "") for tab in tabs if tab.get("id")]
+        tab_ids = [t.get("id", "") for t in tabs if t.get("id")]
+        first_tab_id = tab_ids[0] if tab_ids else ""
 
-        left_default = layout_cfg.get("left_default_tab") or (tab_ids[0] if tab_ids else "")
-        right_default = layout_cfg.get("right_default_tab") or ""
+        self.active_tab = first_tab_id
 
-        if not right_default:
-            right_default = next((tab_id for tab_id in tab_ids if tab_id != left_default), "")
+        # Inicializar grupo activo por columna con el primer grupo de cada columna
+        if first_tab_id:
+            first_tab = next((t for t in tabs if t.get("id") == first_tab_id), {})
+            num_columns = first_tab.get("num_columns", first_tab.get("columns", 2))
+            groups = first_tab.get("groups", [])
+            new_active = {}
+            for col in range(1, num_columns + 1):
+                col_key = f"col_{col}"
+                first_g = next(
+                    (g for g in groups if g.get("column", 1) == col and g.get("id")),
+                    None,
+                )
+                if first_g:
+                    new_active[col_key] = first_g["id"]
+            self.active_group_per_column = new_active
 
-        if right_default == left_default:
-            right_default = next((tab_id for tab_id in tab_ids if tab_id != left_default), "")
-
-        self.left_active_tab = left_default
-        self.right_active_tab = left_default
-
+        # Inicializar form_data
         new_data = {}
-        # Determinar fuente de grupos: tabs o legacy
         if "tabs" in config:
-            sources = [
-                g
-                for tab in config["tabs"]
-                for g in tab.get("groups", [])
-            ]
+            sources = [g for tab in config["tabs"] for g in tab.get("groups", [])]
         else:
             sources = config.get("groups", [])
 
@@ -222,40 +282,37 @@ class BaseState(rx.State):
             if elem_type == "data_table":
                 table_id = element.get("id") or element.get("name")
                 if table_id:
-                    # Asegúrate de que siempre haya una lista de listas inicial
-                    # Si config.json no tiene default_rows, crea una matriz 5x3 vacía
-                    new_data[table_id] = element.get("default_rows", [["" for _ in range(3)] for _ in range(5)])
-
+                    new_data[table_id] = element.get(
+                        "default_rows",
+                        [["" for _ in range(3)] for _ in range(5)],
+                    )
             else:
                 for f in element.get("fields", []):
                     field_id = f.get("id") or f.get("name")
                     if not field_id:
                         continue
-
                     field_type = f.get("type", "number")
-
                     if field_type in ("number", ""):
                         raw = f.get("default", 0.0)
                         try:
                             new_data[field_id] = float(raw)
                         except (TypeError, ValueError):
                             new_data[field_id] = 0.0
-
                     elif field_type == "select":
                         new_data[field_id] = f.get("default", "")
-
                     elif field_type == "toggle":
                         new_data[field_id] = bool(f.get("default", False))
-
                     elif field_type in ("derived", "calculation_trigger"):
                         pass
-
                     elif field_type == "info_label":
                         new_data[field_id] = ""
 
         self.form_data = new_data
         yield
-        
+
+    # -----------------------------------------------------------------------
+    # Tablas y valores
+    # -----------------------------------------------------------------------
     @rx.event
     def update_table_cell(self, table_id: str, pos: tuple[int, int], value: str):
         row, col = pos
@@ -268,7 +325,9 @@ class BaseState(rx.State):
     def set_value(self, field: str, value: str):
         try:
             val = value.strip()
-            self.form_data[field] = 0.0 if val in ["", "-", "."] else float(val.replace(",", "."))
+            self.form_data[field] = (
+                0.0 if val in ["", "-", "."] else float(val.replace(",", "."))
+            )
         except:
             pass
 
@@ -280,6 +339,9 @@ class BaseState(rx.State):
     def set_toggle_value(self, field: str, value: bool):
         self.form_data[field] = value
 
+    # -----------------------------------------------------------------------
+    # calculate
+    # -----------------------------------------------------------------------
     @rx.event
     async def calculate(self):
         from structural_app.shared.services.hash_service import HashService
@@ -298,10 +360,43 @@ class BaseState(rx.State):
             self.current_form_key,
             payload,
         )
+
+        # Si el adapter devuelve form_data_updates, escribirlos de vuelta
+        if self.results and getattr(self.results, "form_data_updates", None):
+            new_data = self.form_data.copy()
+            new_data.update(self.results.form_data_updates)
+            self.form_data = new_data
+
         self.is_calculating = False
         yield
 
-    # --- Exportaciones ---
+    # -----------------------------------------------------------------------
+    # Cálculo parcial (botones del formulario)
+    # -----------------------------------------------------------------------
+    @rx.event
+    def run_partial_calculation(self, action_name: str):
+        import importlib, os
+        module_path = f"structural_app.forms.{self.current_form_key}.adapter"
+        adapter_path = os.path.join(
+            "structural_app", "forms", self.current_form_key, "adapter.py"
+        )
+        if not os.path.exists(adapter_path):
+            print(f"Error: no existe adapter para {self.current_form_key}")
+            return
+
+        adapter = importlib.import_module(module_path)
+        if hasattr(adapter, action_name):
+            func = getattr(adapter, action_name)
+            results = func(self.form_data)
+            new_data = self.form_data.copy()
+            new_data.update(results)
+            self.form_data = new_data
+        else:
+            print(f"Error: {action_name} no existe en adapter.py")
+
+    # -----------------------------------------------------------------------
+    # Exportaciones
+    # -----------------------------------------------------------------------
     @rx.event
     def open_pdf_dialog(self):
         if self.current_form_key:
@@ -314,7 +409,6 @@ class BaseState(rx.State):
         config_dict = FORM_REGISTRY.get(self.current_form_key, {})
         payload = ExportPayloadService.create_report_data(config_dict, self)
         return PDFExportProvider.save_pdf_to_server(payload, self.save_path, self.pdf_filename)
-
 
     @rx.event
     def open_excel_dialog(self):
@@ -330,7 +424,9 @@ class BaseState(rx.State):
         payload = ExportPayloadService.create_report_data(config_dict, self)
         return ExcelExportProvider.save_excel_to_server(payload, self.save_path, self.excel_filename)
 
-    # --- Navegación ---
+    # -----------------------------------------------------------------------
+    # Navegación
+    # -----------------------------------------------------------------------
     @rx.event
     async def navigate_to_form(self, key: str):
         self.results = SolverResponse(is_ok=True, checks=[], summary="Cargando...", plot_data=None)
@@ -349,26 +445,37 @@ class BaseState(rx.State):
         yield
         yield rx.redirect("/")
 
-    # --- Búsqueda ---
+    # -----------------------------------------------------------------------
+    # Búsqueda
+    # -----------------------------------------------------------------------
     @rx.event
     def set_search_query(self, query: str): self.search_query = query
+
     @rx.event
     def clear_search(self): self.search_query = ""
 
     @rx.var
     def search_results(self) -> List[SearchResult]:
-        if not self.search_query.strip(): return []
+        if not self.search_query.strip():
+            return []
         q = self.search_query.lower()
         res = []
         for k, c in FORM_REGISTRY.items():
             if q in c.get("title", "").lower() or q in c.get("description", "").lower():
-                res.append(SearchResult(title=c.get("title", ""), description=c.get("description", ""), form_key=k))
+                res.append(SearchResult(
+                    title=c.get("title", ""),
+                    description=c.get("description", ""),
+                    form_key=k,
+                ))
         return res
 
-    # --- Gestión de Sesión (JSON) ---
+    # -----------------------------------------------------------------------
+    # Gestión de Sesión (JSON)
+    # -----------------------------------------------------------------------
     @rx.event
     def open_save_dialog(self):
-        if self.current_form_key: self.save_filename = f"proyecto_{self.current_form_key}.json"
+        if self.current_form_key:
+            self.save_filename = f"proyecto_{self.current_form_key}.json"
         self.is_save_dialog_open = True
 
     @rx.event
@@ -381,13 +488,14 @@ class BaseState(rx.State):
             "timestamp": datetime.datetime.now().isoformat(),
             "app_version": "1.1.0",
             "hash": self.last_calculation_hash,
-            "user_tag": self.save_filename.replace(".json", "")
+            "user_tag": self.save_filename.replace(".json", ""),
         }
         return SessionIO.save_to_server_disk(payload_to_save, self.save_path, self.save_filename)
 
     @rx.event
     async def load_session(self, files: list[rx.UploadFile]):
-        if not files: return
+        if not files:
+            return
         self.is_load_dialog_open = False
         yield
         file = files[0]
@@ -411,7 +519,7 @@ class BaseState(rx.State):
             yield rx.toast.error(f"Error al leer el archivo JSON: {str(e)}")
 
     # -----------------------------------------------------------------------
-    # active_form_config — construye FormConfig inyectando has_tabs
+    # active_form_config
     # -----------------------------------------------------------------------
     @rx.var
     def active_form_config(self) -> FormConfig:
@@ -424,8 +532,10 @@ class BaseState(rx.State):
     @rx.var
     def visualizer_title(self) -> str:
         features = self.active_form_config.features
-        if features.get("viewer_3d", False): return "Modelo 3D Interactivo"
-        if features.get("svg", False): return "Esquema de la Sección"
+        if features.get("viewer_3d", False):
+            return "Modelo 3D Interactivo"
+        if features.get("svg", False):
+            return "Esquema de la Sección"
         return "Análisis Gráfico"
 
     @rx.var
@@ -435,21 +545,30 @@ class BaseState(rx.State):
         has_data = self.results is not None and self.results.plot_data is not None
         return wants_visuals and has_data and self.current_form_key != ""
 
-    # --- Setters de Interfaz ---
+    # -----------------------------------------------------------------------
+    # Setters de interfaz
+    # -----------------------------------------------------------------------
     @rx.event
     def set_save_path(self, path: str): self.save_path = path
+
     @rx.event
     def set_save_filename(self, name: str): self.save_filename = name
+
     @rx.event
     def set_pdf_filename(self, name: str): self.pdf_filename = name
+
     @rx.event
     def set_excel_filename(self, name: str): self.excel_filename = name
+
     @rx.event
     def set_is_save_dialog_open(self, o: bool): self.is_save_dialog_open = o
+
     @rx.event
     def set_is_load_dialog_open(self, o: bool): self.is_load_dialog_open = o
+
     @rx.event
     def set_is_pdf_dialog_open(self, o: bool): self.is_pdf_dialog_open = o
+
     @rx.event
     def set_is_excel_dialog_open(self, o: bool): self.is_excel_dialog_open = o
 
@@ -457,26 +576,14 @@ class BaseState(rx.State):
     async def clear_state_on_index(self):
         self.current_form_key = ""
         self.form_data = {}
-        self.results = SolverResponse(is_ok=True, checks=[], summary="Esperando datos...", plot_data=None)
+        self.results = SolverResponse(
+            is_ok=True, checks=[], summary="Esperando datos...", plot_data=None
+        )
         self.last_calculation_hash = ""
         yield
 
-    @rx.event
-    def run_partial_calculation(self, action_name: str):
-        import structural_app.forms.muro.adapter as adapter
-        
-        if hasattr(adapter, action_name):
-            func = getattr(adapter, action_name)
-            results = func(self.form_data)
-            
-            # Actualizamos y re-asignamos para asegurar la reactividad
-            new_data = self.form_data.copy()
-            new_data.update(results)
-            self.form_data = new_data 
-        else:
-            print(f"Error: {action_name} no existe en adapter.py")
-
-    def reset_form(self): return rx.call_script("window.location.reload();")
+    def reset_form(self):
+        return rx.call_script("window.location.reload();")
 
     def set_field_value(self, field_id: str, value: str):
         self.form_data[field_id] = value

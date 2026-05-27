@@ -21,18 +21,18 @@
     "sketch": true
   },
   "page_layout": {
-    "type": "split_tabs",
-    "left_default_tab": "tab_geometria",
-    "right_default_tab": "tab_acciones"
+    "type": "split_tabs"
   },
   "tabs": [
     {
       "id": "tab_geometria",
       "label": "1. Geometría",
+      "num_columns": 2,
       "groups": [
         {
+          "id": "geo_muro",
           "name": "1.1 Geometría del Muro",
-          "side": "left",
+          "column": 1,
           "layout_columns": 2,
           "fields": [
             {
@@ -81,8 +81,9 @@
           ]
         },
         {
-          "name": "1.1 Geometría de la Zapata",
-          "side": "right",
+          "id": "geo_zapata",
+          "name": "1.2 Geometría de la Zapata",
+          "column": 2,
           "layout_columns": 2,
           "fields": [
             {
@@ -137,10 +138,12 @@
     {
       "id": "tab_relleno",
       "label": "2. Relleno y Terreno",
+      "num_columns": 3,
       "groups": [
         {
-          "name": "1.2 Características del Relleno",
-          "side": "left",
+          "id": "relleno",
+          "name": "1.3 Características del Relleno",
+          "column": 1,
           "layout_columns": 2,
           "fields": [
             {
@@ -197,10 +200,7 @@
               "type": "calculation_trigger",
               "label": "Calcular Coeficientes",
               "action_name": "calc_earth_coefficients",
-              "target_fields": [
-                "ka_val",
-                "kp_val"
-              ]
+              "target_fields": ["ka_val", "kp_val"]
             },
             {
               "id": "ka_val",
@@ -217,23 +217,15 @@
           ]
         },
         {
+          "id": "estratos",
           "type": "data_table",
-          "id": "tabla_estratos",
-          "side": "right",
+          "name": "Estratos del terreno",
+          "column": 2,
           "title": "Estratos del terreno",
           "columns": [
-            {
-              "title": "Espesor",
-              "type": "float"
-            },
-            {
-              "title": "γ",
-              "type": "float"
-            },
-            {
-              "title": "φ",
-              "type": "float"
-            }
+            { "title": "Espesor", "type": "float" },
+            { "title": "γ",       "type": "float" },
+            { "title": "φ",       "type": "float" }
           ],
           "default_rows": [
             [1.0, 18.0, 30.0],
@@ -241,8 +233,9 @@
           ]
         },
         {
-          "name": "1.3 Características del Terreno de Apoyo",
-          "side": "right",
+          "id": "terreno_apoyo",
+          "name": "1.4 Características del Terreno de Apoyo",
+          "column": 3,
           "layout_columns": 2,
           "fields": [
             {
@@ -290,10 +283,12 @@
     {
       "id": "tab_acciones",
       "label": "3. Acciones",
+      "num_columns": 4,
       "groups": [
         {
-          "name": "1.4 Acciones en Cabeza del Muro",
-          "side": "left",
+          "id": "acciones_cabeza",
+          "name": "1.5 Acciones en Cabeza del Muro",
+          "column": 1,
           "layout_columns": 2,
           "fields": [
             {
@@ -323,36 +318,26 @@
           ]
         },
         {
+          "id": "combinaciones",
           "type": "data_table",
-          "id": "tabla_combinaciones",
-          "side": "left",
+          "name": "Combinaciones de acciones",
+          "column": 1,
           "title": "Combinaciones de acciones",
           "columns": [
-            {
-              "title": "Caso",
-              "type": "str"
-            },
-            {
-              "title": "γG",
-              "type": "float"
-            },
-            {
-              "title": "γQ",
-              "type": "float"
-            },
-            {
-              "title": "ψ",
-              "type": "float"
-            }
+            { "title": "Caso", "type": "str"   },
+            { "title": "γG",   "type": "float" },
+            { "title": "γQ",   "type": "float" },
+            { "title": "ψ",    "type": "float" }
           ],
           "default_rows": [
             ["EST", 1.35, 1.5, 1.0],
-            ["SIS", 1.0, 1.0, 0.2]
+            ["SIS", 1.0,  1.0, 0.2]
           ]
         },
         {
-          "name": "1.5 Acciones Sísmicas",
-          "side": "left",
+          "id": "sismo",
+          "name": "1.6 Acciones Sísmicas",
+          "column": 2,
           "layout_columns": 2,
           "fields": [
             {
@@ -399,8 +384,9 @@
           ]
         },
         {
-          "name": "1.6 Coeficientes de Mayoración",
-          "side": "right",
+          "id": "coef_mayoracion",
+          "name": "1.7 Coeficientes de Mayoración",
+          "column": 3,
           "layout_columns": 2,
           "fields": [
             {
@@ -434,8 +420,9 @@
           ]
         },
         {
-          "name": "1.7 Coeficientes de Seguridad",
-          "side": "right",
+          "id": "coef_seguridad",
+          "name": "1.8 Coeficientes de Seguridad",
+          "column": 4,
           "layout_columns": 2,
           "fields": [
             {
@@ -483,10 +470,12 @@
     {
       "id": "tab_materiales",
       "label": "4. Materiales",
+      "num_columns": 2,
       "groups": [
         {
-          "name": "1.8 Materiales",
-          "side": "left",
+          "id": "materiales",
+          "name": "1.9 Materiales",
+          "column": 1,
           "layout_columns": 2,
           "fields": [
             {
@@ -551,8 +540,9 @@
           ]
         },
         {
-          "name": "2. Comprobación de Estabilidad — Parámetros Coulomb",
-          "side": "right",
+          "id": "coulomb",
+          "name": "2. Parámetros Coulomb",
+          "column": 2,
           "layout_columns": 2,
           "fields": [
             {
